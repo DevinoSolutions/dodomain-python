@@ -29,6 +29,10 @@ from ._transport import (
     retry_delay_for_response,
 )
 from .errors import DoDomainConfigError, DoDomainConnectionError
+from .resources.apps import Apps, AsyncApps
+from .resources.connections import AsyncConnections, Connections
+from .resources.domains import AsyncDomains, Domains
+from .resources.sessions import AsyncSessions, Sessions
 
 __all__ = ["AsyncDoDomain", "DoDomain"]
 
@@ -160,6 +164,11 @@ class DoDomain(_BaseClient):
         self._owns_client = http_client is None
         self._http = http_client or httpx.Client(timeout=timeout)
 
+        self.sessions = Sessions(self)
+        self.connections = Connections(self)
+        self.domains = Domains(self)
+        self.apps = Apps(self)
+
     def request(self, spec: RequestSpec) -> Any:
         """Send one request, applying the retry policy, and return parsed JSON."""
         attempt = 0
@@ -234,6 +243,11 @@ class AsyncDoDomain(_BaseClient):
         )
         self._owns_client = http_client is None
         self._http = http_client or httpx.AsyncClient(timeout=timeout)
+
+        self.sessions = AsyncSessions(self)
+        self.connections = AsyncConnections(self)
+        self.domains = AsyncDomains(self)
+        self.apps = AsyncApps(self)
 
     async def request(self, spec: RequestSpec) -> Any:
         """Send one request, applying the retry policy, and return parsed JSON."""
