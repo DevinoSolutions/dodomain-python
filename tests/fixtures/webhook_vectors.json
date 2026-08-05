@@ -1,0 +1,48 @@
+{
+  "generated_by": "packages/core/src/webhook.ts signWebhook (node --experimental-strip-types)",
+  "generated_at": "2026-08-05T06:42:11.478Z",
+  "vectors": [
+    {
+      "name": "simple legacy envelope",
+      "secret": "whsec_test_0123456789abcdef",
+      "body": "{\"event\":\"connection.verified\",\"data\":{\"domain\":\"app.customer.com\",\"sessionId\":\"cs_1\"}}",
+      "timestamp_ms": 1786000000000,
+      "header": "t=1786000000000,v1=359595de608f3dabbe384c567c913ac9f9800ad764f8267529d3f0b007a0741b"
+    },
+    {
+      "name": "empty body",
+      "secret": "whsec_empty",
+      "body": "",
+      "timestamp_ms": 1786000000001,
+      "header": "t=1786000000001,v1=a73315bf9eac225d80b21a96cf3788bb613f87a00ec13f21b887844ac6d0ddc5"
+    },
+    {
+      "name": "unicode payload",
+      "secret": "whsec_unicode",
+      "body": "{\"event\":\"session.abandoned\",\"data\":{\"domain\":\"ünïcøde.example\",\"note\":\"日本語 🎉\"}}",
+      "timestamp_ms": 1786000000002,
+      "header": "t=1786000000002,v1=465776333237e728914dd7924d9229337006310d32d8f4283236a118f4cd396b"
+    },
+    {
+      "name": "future envelope shape",
+      "secret": "whsec_future",
+      "body": "{\"id\":\"wd_1\",\"type\":\"connection.disconnected\",\"occurredAt\":\"2026-08-05T12:00:00.000Z\",\"data\":{\"domain\":\"a.io\"}}",
+      "timestamp_ms": 1786000000003,
+      "header": "t=1786000000003,v1=c094999161e5f02d24a2fda95ce58dd9605a4fde52188ce4a912ebd22f419ce7"
+    },
+    {
+      "name": "secret with non-ascii",
+      "secret": "whsec_ünïcøde_secret",
+      "body": "{\"event\":\"connection.failed\",\"data\":{\"reason\":\"dns_drift\",\"scope\":\"connection\"}}",
+      "timestamp_ms": 1786000000004,
+      "header": "t=1786000000004,v1=87320e0ccf13a2c3ab9a6de852d4320a42a2a7b3ad2686ac17d7e95006c32bf8"
+    },
+    {
+      "name": "body with equals and commas",
+      "secret": "whsec_punct",
+      "body": "raw=body,with=separators",
+      "timestamp_ms": 1786000000005,
+      "header": "t=1786000000005,v1=1869a25536b7ddec9d3bff78dcccbc43bfa6121cc2329e9b1a3adb3cb19ee890"
+    }
+  ]
+}
