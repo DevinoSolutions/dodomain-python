@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "dodomain"
+name = "dodomain-sdk"
 dynamic = ["version"]
 description = "Official Python SDK for doDomain — connect your customers' custom domains."
 readme = "README.md"

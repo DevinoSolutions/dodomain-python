@@ -1,6 +1,6 @@
 # This workflow uses PyPI Trusted Publishing (OIDC) — no API token/password. It will
-# FAIL until a trusted publisher for the `dodomain` project is registered on PyPI:
-#   PyPI -> project `dodomain` -> Publishing -> add GitHub publisher:
+# FAIL until a trusted publisher for the `dodomain-sdk` project is registered on PyPI:
+#   PyPI -> project `dodomain-sdk` -> Publishing -> add GitHub publisher:
 #   owner: DevinoSolutions, repo: dodomain-python, workflow: publish.yml,
 #   environment: pypi
 # Do NOT dispatch this workflow before that is done.

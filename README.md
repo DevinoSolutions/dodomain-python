@@ -13,10 +13,13 @@ verification.
 ## Install
 
 ```bash
-pip install dodomain
+pip install dodomain-sdk
 ```
 
 Requires Python 3.10+. The only runtime dependency is `httpx`.
+
+> The distribution is published as **`dodomain-sdk`**, but the import package is
+> **`dodomain`** — `pip install dodomain-sdk`, then `from dodomain import DoDomain`.
 
 ## Authentication
 
