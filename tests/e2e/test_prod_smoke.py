@@ -78,7 +78,7 @@ def test_apps_list_returns_at_least_one_app_and_leaks_no_secret_material(
     assert len(apps) >= 1
     for app in apps:
         assert app.id
-        assert app.public_key.startswith("pk_")
+        assert app.public_key.startswith("dd_pk_")
         assert app.created_at.tzinfo is not None
         assert app.raw is not None
         for forbidden in FORBIDDEN_APP_FIELDS:
