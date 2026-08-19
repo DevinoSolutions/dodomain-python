@@ -32,7 +32,9 @@ from .errors import DoDomainConfigError, DoDomainConnectionError
 from .resources.apps import Apps, AsyncApps
 from .resources.connections import AsyncConnections, Connections
 from .resources.domains import AsyncDomains, Domains
+from .resources.keys import AsyncKeys, Keys
 from .resources.sessions import AsyncSessions, Sessions
+from .resources.webhook_endpoints import AsyncWebhookEndpoints, WebhookEndpoints
 
 __all__ = ["AsyncDoDomain", "DoDomain"]
 
@@ -168,6 +170,8 @@ class DoDomain(_BaseClient):
         self.connections = Connections(self)
         self.domains = Domains(self)
         self.apps = Apps(self)
+        self.webhook_endpoints = WebhookEndpoints(self)
+        self.keys = Keys(self)
 
     def request(self, spec: RequestSpec) -> Any:
         """Send one request, applying the retry policy, and return parsed JSON."""
@@ -248,6 +252,8 @@ class AsyncDoDomain(_BaseClient):
         self.connections = AsyncConnections(self)
         self.domains = AsyncDomains(self)
         self.apps = AsyncApps(self)
+        self.webhook_endpoints = AsyncWebhookEndpoints(self)
+        self.keys = AsyncKeys(self)
 
     async def request(self, spec: RequestSpec) -> Any:
         """Send one request, applying the retry policy, and return parsed JSON."""

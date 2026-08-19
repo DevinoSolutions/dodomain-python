@@ -3,18 +3,42 @@
 doDomain signs every delivery Stripe-style::
 
     x-dodomain-signature: t=<unix millis>,v1=<hex sha256 hmac>
+    x-dodomain-event: connection.verified
+    x-dodomain-delivery-id: whd_…
 
 The signed payload is ``f"{t}.{raw_body}"``, HMAC-SHA256 with your endpoint
-secret, lowercase hex. Deliveries also carry ``x-dodomain-event: <type>``.
+secret, lowercase hex.
 
 Verify against the **raw** request body, before any JSON parsing: re-serializing
 a parsed body changes the bytes and the signature will not match.
 
-**No typed event parser ships in this version, on purpose.** The delivered body
-is still the legacy ``{event, data}`` shape while the versioned ``{id, type,
-occurredAt, data}`` envelope waits on a deliberate cutover, so a typed parser
-here would break the day that lands. :func:`verify_webhook` only checks the HMAC
-and is wire-format agnostic, which makes it safe across the cutover.
+THE WIRE BODY
+-------------
+The envelope cutover landed on 2026-08-06, so a delivery today looks like::
+
+    {
+      "id": "whd_…",            # stable across retries — dedupe on this
+      "type": "connection.verified",
+      "occurredAt": "2026-08-17T10:00:00.000Z",
+      "data": {"sessionId": "…", "connectionId": "…", …},
+      "event": "connection.verified"   # DEPRECATED alias for `type`
+    }
+
+``event`` is byte-identical to ``type`` and exists only so receivers written
+before the cutover keep parsing. Read ``type``, dedupe on ``id`` — the same
+value as the ``x-dodomain-delivery-id`` header, so you can dedupe before parsing
+the body at all — and treat ``event`` as legacy.
+
+``data`` always carries ``sessionId`` as your correlation handle, and every
+payload that announces a connection also carries ``connectionId`` — the id
+``connections.get`` / ``reverify`` / ``disconnect`` are keyed by.
+
+**Still no typed event parser, and still on purpose.** The event vocabulary and
+the payload fields both grow additively, so a strict parser here would reject a
+delivery the day the API adds a type — exactly the failure a webhook receiver
+must not have. :func:`verify_webhook` checks the HMAC and nothing else, which is
+what makes it safe across every additive change; parse ``json.loads(raw)``
+yourself and ignore what you do not recognise.
 """
 
 from __future__ import annotations

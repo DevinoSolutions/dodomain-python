@@ -87,6 +87,26 @@ class Connections:
     def __init__(self, client: DoDomain) -> None:
         self._client = client
 
+    def get(self, connection_id: str) -> Connection:
+        """Read one connection by the id every ``connection.*`` webhook carries.
+
+        The body is byte-identical to one element of :meth:`list`, so a single
+        parser serves both. Reach for this instead of listing-and-filtering when
+        you already hold an id: past the paging ceiling, filtering means walking
+        every cursor.
+
+        Unlike :meth:`list`, a **disconnected** connection is returned — a caller
+        naming an id already knows the row exists, and ``disconnected_at`` is
+        exactly what it came to read.
+
+        Raises:
+            NotFoundError: Unknown id — or one you do not own. The two are
+                deliberately indistinguishable.
+        """
+        return Connection._from_api(
+            self._client.request(RequestSpec("GET", _connection_path(connection_id)))
+        )
+
     def list(
         self,
         *,
@@ -191,6 +211,12 @@ class AsyncConnections:
 
     def __init__(self, client: AsyncDoDomain) -> None:
         self._client = client
+
+    async def get(self, connection_id: str) -> Connection:
+        """Read one connection by id. See :meth:`Connections.get`."""
+        return Connection._from_api(
+            await self._client.request(RequestSpec("GET", _connection_path(connection_id)))
+        )
 
     async def list(
         self,

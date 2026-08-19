@@ -8,7 +8,18 @@ The flow is read-mostly and self-cleaning. The one session it creates is never
 verified, so it expires naturally in 24 hours and the reaper emits
 ``session.abandoned`` — no production row needs deleting, and
 ``connections.disconnect`` is never called against a real customer connection.
-Budget: roughly eight requests, far under the 60/min plan cap.
+Budget: roughly a dozen requests, far under the 60/min plan cap.
+
+TWO THINGS THIS SUITE DELIBERATELY DOES NOT DO
+----------------------------------------------
+``keys.rotate()`` and the webhook-endpoint *writes* are never exercised live.
+Rotation has no grace window, so a live call would invalidate the very
+``DODOMAIN_SECRET_KEY`` this job authenticates with and break every subsequent CI
+run — the response is the only copy of the replacement and nothing here could
+store it. Endpoint creation would leave a real delivery target on a production
+app. Both are covered by the unit suite against ``respx``; what is proven here
+instead is that the routes are deployed and reject an unauthenticated caller,
+which is the part a mock cannot tell you.
 """
 
 from __future__ import annotations
@@ -144,6 +155,79 @@ def test_connections_list_returns_a_well_formed_page(client: DoDomain) -> None:
     for conn in page.connections:
         assert conn.status in ("active", "broken")
         assert conn.created_at.tzinfo is not None
+
+
+def test_the_authed_arm_reads_the_session_back_by_its_id(client: DoDomain, created_session) -> None:
+    # The id arm, addressed by the same id a webhook would carry — and a genuinely
+    # different shape from the token arm, which is what this proves against prod.
+    state = client.sessions.get(created_session.id)
+    assert state.id == created_session.id
+    assert state.app_id
+    assert state.status == "pending"
+    assert state.expired is False
+    assert state.connection_id is None, "an unverified session has no connection yet"
+    assert state.records, "the authed arm always composes the record names"
+    assert state.records[0].fqdn.endswith(E2E_DOMAIN_SUFFIX)
+    # Composed records carry no value — the server omits it on this arm.
+    assert "value" not in (state.records[0].raw or {})
+
+
+def test_the_two_session_read_arms_agree_on_the_facts_they_share(
+    client: DoDomain, created_session
+) -> None:
+    public = client.sessions.retrieve(created_session.token)
+    authed = client.sessions.get(created_session.id)
+    assert (authed.id, authed.domain, authed.status) == (public.id, public.domain, public.status)
+
+
+def test_a_session_id_that_is_not_yours_is_a_404(client: DoDomain) -> None:
+    with pytest.raises(NotFoundError) as excinfo:
+        client.sessions.get("cthisisnotarealsessionid")
+    assert excinfo.value.status_code == 404
+
+
+def test_reading_one_connection_by_id_matches_what_the_list_returned(
+    client: DoDomain,
+) -> None:
+    page = client.connections.list(limit=1, include_disconnected=True)
+    if not page.connections:
+        pytest.skip(
+            "LOUD SKIP: the e2e app has no connections on prod yet, so connections.get "
+            "cannot be proven against a real row. The route's deployment is still "
+            "proven by test_an_unknown_connection_id_is_a_404 below."
+        )
+    listed = page.connections[0]
+    fetched = client.connections.get(listed.id)
+    # The route promises a body byte-identical to a list element.
+    assert fetched == listed
+    assert isinstance(fetched.record_fqdns, tuple)
+
+
+def test_an_unknown_connection_id_is_a_404(client: DoDomain) -> None:
+    with pytest.raises(NotFoundError) as excinfo:
+        client.connections.get("cthisisnotarealconnectionid")
+    assert excinfo.value.status_code == 404
+
+
+def test_webhook_endpoints_list_never_returns_a_signing_secret(client: DoDomain) -> None:
+    for endpoint in client.webhook_endpoints.list():
+        assert endpoint.id and endpoint.app_id and endpoint.url
+        assert endpoint.created_at.tzinfo is not None
+        assert not hasattr(endpoint, "secret")
+        assert "secret" not in (endpoint.raw or {}), "a read surface must never carry the secret"
+
+
+def test_the_secret_key_only_routes_are_deployed_and_reject_a_bad_credential() -> None:
+    # A route that did not exist would answer 404. A 401 proves it is deployed AND
+    # that it refuses an unusable credential — the only way to touch keys.rotate
+    # in production without destroying the key this suite runs on.
+    with DoDomain(secret_key="dd_sk_bogus", base_url=PROD_BASE_URL) as bogus:
+        with pytest.raises(AuthenticationError) as rotate_error:
+            bogus.keys.rotate()
+        with pytest.raises(AuthenticationError) as endpoints_error:
+            bogus.webhook_endpoints.list()
+    assert rotate_error.value.status_code == 401
+    assert endpoints_error.value.status_code == 401
 
 
 def test_an_unknown_session_token_raises_not_found(client: DoDomain) -> None:

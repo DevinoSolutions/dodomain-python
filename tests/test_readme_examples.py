@@ -22,13 +22,17 @@ from tests.helpers import (
     CREATE_SESSION_RESPONSE,
     DETECT_RESPONSE,
     DISCONNECT_RESPONSE,
+    INTEGRATOR_SESSION_RESPONSE,
     LIST_APPS_RESPONSE,
     PUBLIC_SESSION_RESPONSE,
+    ROTATED_KEY_RESPONSE,
     VERIFY_RESPONSE,
     api,
     connection,
     make_async_client,
     make_client,
+    webhook_endpoint,
+    webhook_endpoint_with_secret,
 )
 
 README = pathlib.Path(__file__).resolve().parent.parent / "README.md"
@@ -65,6 +69,8 @@ def test_the_quickstart_block_runs() -> None:
         )
         assert session.connect_url.startswith("https://app.dodomain.io/connect/")
         assert session.expires_at.tzinfo is not None
+        # The block prints the composed name — the doubled-label check.
+        assert [r.fqdn for r in session.records] == ["app.app.customer.com"]
 
 
 @respx.mock
@@ -148,6 +154,71 @@ def test_the_connections_block_runs() -> None:
 
 
 @respx.mock
+def test_the_session_read_back_block_runs() -> None:
+    respx.get(api("/api/v1/sessions/cs_01HZX")).mock(
+        return_value=httpx.Response(200, json=INTEGRATOR_SESSION_RESPONSE)
+    )
+    with make_client() as client:
+        state = client.sessions.get("cs_01HZX")
+    assert state.status == "verified"
+    assert state.expired is False
+    assert state.connection_id == "conn_1"
+    assert state.records[0].fqdn == "app.app.customer.com"
+
+
+@respx.mock
+def test_the_webhook_endpoints_block_runs() -> None:
+    respx.post(api("/api/v1/webhook-endpoints")).mock(
+        return_value=httpx.Response(201, json=webhook_endpoint_with_secret())
+    )
+    respx.get(api("/api/v1/webhook-endpoints")).mock(
+        return_value=httpx.Response(200, json={"endpoints": [webhook_endpoint()]})
+    )
+    respx.patch(api("/api/v1/webhook-endpoints/whe_123")).mock(
+        return_value=httpx.Response(200, json=webhook_endpoint(id="whe_123"))
+    )
+    respx.post(api("/api/v1/webhook-endpoints/whe_123/rotate-secret")).mock(
+        return_value=httpx.Response(200, json=webhook_endpoint_with_secret(id="whe_123"))
+    )
+    respx.delete(api("/api/v1/webhook-endpoints/whe_123")).mock(
+        return_value=httpx.Response(200, json={"id": "whe_123", "deleted": True})
+    )
+    with make_client() as client:
+        endpoint = client.webhook_endpoints.create(url="https://acme.example/webhooks/dodomain")
+        assert endpoint.secret.startswith("whsec_")
+        assert [(e.id, e.url) for e in client.webhook_endpoints.list()] == [
+            ("whe_1", "https://acme.example/webhooks/dodomain")
+        ]
+        client.webhook_endpoints.update("whe_123", url="https://acme.example/v2")
+        rotated = client.webhook_endpoints.rotate_secret("whe_123")
+        assert rotated.secret.startswith("whsec_")
+        assert client.webhook_endpoints.delete("whe_123").deleted is True
+
+
+@respx.mock
+def test_the_key_rotation_block_runs() -> None:
+    respx.post(api("/api/v1/keys/rotate")).mock(
+        return_value=httpx.Response(200, json=ROTATED_KEY_RESPONSE)
+    )
+    with make_client() as client:
+        rotated = client.keys.rotate()
+    assert rotated.secret_key.startswith("dd_sk_")
+    assert rotated.public_key == "dd_pk_live_abc"
+
+
+@respx.mock
+def test_the_connection_get_lines_in_the_connections_block_run() -> None:
+    respx.get(api("/api/v1/connections/conn_123")).mock(
+        return_value=httpx.Response(200, json=connection(id="conn_123"))
+    )
+    with make_client() as client:
+        conn = client.connections.get("conn_123")
+    assert conn.status in ("active", "broken")
+    assert conn.record_fqdns == ("status.app.customer.com",)
+    assert conn.disconnected_at is None
+
+
+@respx.mock
 def test_the_domain_check_and_apps_blocks_run() -> None:
     respx.post(api("/api/v1/domains/check")).mock(
         return_value=httpx.Response(200, json=CHECK_DOMAIN_RESPONSE)
@@ -168,15 +239,44 @@ def test_the_domain_check_and_apps_blocks_run() -> None:
             )
 
 
-def test_the_webhook_handler_block_runs() -> None:
+def test_the_webhook_handler_block_runs_against_the_body_actually_delivered() -> None:
     secret = "whsec_readme"
-    raw = json.dumps({"event": "connection.verified", "data": {"domain": "app.customer.com"}})
+    # The post-cutover envelope the README documents, key order and all.
+    raw = json.dumps(
+        {
+            "id": "whd_1",
+            "type": "connection.verified",
+            "occurredAt": "2026-08-17T10:00:00.000Z",
+            "data": {"sessionId": "cs_01HZX", "connectionId": "conn_1"},
+            "event": "connection.verified",
+        }
+    )
     header = sign_webhook(secret, raw, 1786000000000)
 
     assert verify_webhook(secret, raw, header, now_ms=1786000000000) is True
-    assert json.loads(raw)["event"] == "connection.verified"
+    event = json.loads(raw)
+    assert event["type"] == "connection.verified"
+    # The deprecated alias is byte-identical to `type`, which is the whole reason
+    # a pre-cutover receiver keeps working.
+    assert event["event"] == event["type"]
+    assert event["data"]["connectionId"] == "conn_1"
     # The rejection path the README shows.
     assert verify_webhook(secret, raw, "garbage", now_ms=1786000000000) is False
+
+
+def test_the_readme_no_longer_claims_the_legacy_webhook_body_is_current() -> None:
+    # 0.1.0 documented `{event, data}` as what arrives. The cutover landed on
+    # 2026-08-06 and a reader following the old text would build the wrong parser.
+    text = README.read_text(encoding="utf-8")
+    assert "still the legacy" not in text
+    assert "waits on a deliberate cutover" not in text
+    assert "occurredAt" in text
+
+
+def test_the_readme_does_not_repeat_the_false_no_openapi_claim() -> None:
+    # The spec is served at dodomain.io/docs/openapi.json; saying otherwise sent
+    # readers looking for a contract that was published all along.
+    assert "publishes no\nOpenAPI" not in README.read_text(encoding="utf-8")
 
 
 @respx.mock

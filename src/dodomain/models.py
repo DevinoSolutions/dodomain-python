@@ -27,25 +27,32 @@ from .errors import InvalidResponseError
 __all__ = [
     "App",
     "CheckDomainResult",
+    "ComposedRecord",
     "Confidence",
     "Connection",
     "ConnectionPage",
     "ConnectionStatus",
+    "DeletedWebhookEndpoint",
     "DetectResult",
     "DisconnectResult",
     "DnsRecord",
     "DnsRecordType",
     "DomainConnectDiscovery",
     "DomainConnectRef",
+    "IntegratorSession",
     "Method",
     "ProviderGuide",
     "PublicSession",
     "ReverifyResult",
+    "RotatedSecretKey",
     "Session",
+    "SessionWarning",
     "Tier",
     "VerifyOutcome",
     "VerifyRecord",
     "VerifyResult",
+    "WebhookEndpoint",
+    "WebhookEndpointWithSecret",
 ]
 
 DnsRecordType = Literal["A", "AAAA", "CNAME", "TXT", "MX"]
@@ -55,6 +62,7 @@ Confidence = Literal["high", "medium", "low"]
 ConnectionStatus = Literal["active", "broken"]
 VerifyOutcome = Literal["verified", "propagating", "absent", "indeterminate", "domain_not_found"]
 ApexToken = Literal["@", "(blank)", "%domain%"]
+WarningCode = Literal["duplicate_host_label"]
 
 #: Every DNS record type a connect session may request, from the app repo's one
 #: record-type home (``packages/core/src/record-capabilities.ts``).
@@ -118,6 +126,20 @@ def _req_list(payload: dict[str, Any], key: str) -> list[Any]:
     if not isinstance(value, list):
         raise _fail(f"missing or non-array field {key!r}", payload)
     return value
+
+
+def _opt_list(payload: dict[str, Any], key: str) -> list[Any]:
+    """Read an *additive* array field, treating absence as empty.
+
+    Every array the API has grown since this SDK's first release — ``records`` and
+    ``warnings`` on a create response, ``recordFqdns`` on a connection — arrived
+    additively, so a body written before the field existed (a cached response, an
+    archived payload, an older deployment) must still parse. A field that is
+    *present* but not an array is still fatal: that is contract drift, not history.
+    """
+    if payload.get(key) is None:
+        return []
+    return _req_list(payload, key)
 
 
 def _str_list(payload: dict[str, Any], key: str) -> tuple[str, ...]:
@@ -213,6 +235,64 @@ class DnsRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class ComposedRecord:
+    """A requested record paired with the name doDomain will actually look up.
+
+    The API composes ``host`` under the session's ``domain`` — a session for
+    ``links.acme.com`` with ``host="links"`` is verified at
+    ``links.links.acme.com``, which is the mistake this shape exists to make
+    visible at create time rather than at the first failing verify.
+
+    It deliberately carries **no** ``value``: the server omits it (``zComposedRecord``
+    picks only ``type`` and ``host`` off the record schema), because these are the
+    *names* being monitored, not the record contents. Read the value back off the
+    :class:`DnsRecord` you sent, or off :attr:`PublicSession.records`.
+    """
+
+    type: DnsRecordType
+    host: str
+    fqdn: str
+    raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
+
+    @classmethod
+    def _from_api(cls, payload: Any) -> ComposedRecord:
+        data = _obj(payload, "composed record")
+        return cls(
+            type=_literal(data, "type", RECORD_TYPES),
+            host=_req_str(data, "host"),
+            fqdn=_req_str(data, "fqdn"),
+            raw=data,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SessionWarning:
+    """A non-fatal advisory on an *accepted* ``sessions.create``.
+
+    A warning never changes the status code — the session was created either way.
+    Branch on :attr:`code`; the vocabulary is closed and grows additively, so an
+    unrecognised code must be treated as advisory rather than as an error.
+    """
+
+    code: str
+    message: str
+    host: str
+    fqdn: str
+    raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
+
+    @classmethod
+    def _from_api(cls, payload: Any) -> SessionWarning:
+        data = _obj(payload, "session warning")
+        return cls(
+            code=_req_str(data, "code"),
+            message=_req_str(data, "message"),
+            host=_req_str(data, "host"),
+            fqdn=_req_str(data, "fqdn"),
+            raw=data,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class Session:
     """A freshly minted connect session — the response of ``sessions.create``.
 
@@ -221,12 +301,24 @@ class Session:
         token: The capability for the token-public routes and the hosted flow.
         expires_at: 24 hours after creation.
         connect_url: Send the customer here.
+        records: The fully-qualified names this session will be verified at — one
+            per record you sent. Check these before showing the customer anything:
+            they are where a doubled label (``links.links.acme.com``) becomes
+            obvious.
+        warnings: Advisories about the request that was nonetheless accepted.
+            Empty for a clean create.
     """
 
     id: str
     token: str
     expires_at: datetime
     connect_url: str
+    #: Both additive fields carry defaults and therefore sit after the four
+    #: original ones — a Python dataclass cannot put a defaulted field before an
+    #: undefaulted one, and reordering the originals would break positional
+    #: construction for anyone who already writes ``Session(...)`` in a test.
+    records: tuple[ComposedRecord, ...] = ()
+    warnings: tuple[SessionWarning, ...] = ()
     base_url: str = "https://app.dodomain.io"
     raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
 
@@ -256,6 +348,8 @@ class Session:
             token=_req_str(data, "token"),
             expires_at=_req_datetime(data, "expiresAt"),
             connect_url=_req_str(data, "connectUrl"),
+            records=tuple(ComposedRecord._from_api(item) for item in _opt_list(data, "records")),
+            warnings=tuple(SessionWarning._from_api(item) for item in _opt_list(data, "warnings")),
             base_url=base_url,
             raw=data,
         )
@@ -294,6 +388,72 @@ class PublicSession:
             detected_provider=_opt_str(data, "detectedProvider"),
             return_url=_opt_str(data, "returnUrl"),
             expires_at=_req_datetime(data, "expiresAt"),
+            raw=data,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class IntegratorSession:
+    """A session read back **by its id, with your credential** — ``sessions.get``.
+
+    The same path as :meth:`~dodomain.resources.sessions.Sessions.retrieve` serves
+    both arms, discriminated by the shape of the segment, and the two answer
+    genuinely different shapes. Two things only this one can do:
+
+    * **It is addressable by the id webhooks carry.** Every payload names
+      ``sessionId``, never the token, so a ``session.abandoned`` receiver can ask
+      what actually happened without having stored the token at creation.
+    * **It reads an expired session.** The token arm answers 410 forever once the
+      TTL passes — correct for a capability URL, useless for support, because the
+      moment you most want the final state is after the session died.
+
+    Two shape differences from :class:`PublicSession` that will bite if assumed away:
+
+    * :attr:`records` are :class:`ComposedRecord`s — ``type``/``host``/``fqdn``, and
+      **no ``value``**. The server omits it here.
+    * There is no ``return_url``; there is an ``app_id``, a ``connection_id`` and a
+      derived :attr:`expired`.
+
+    ``status`` and ``tier`` stay loose (``str`` / ``int | None``) for the same reason
+    they do on :class:`PublicSession`: the server types them as a bare string and a
+    nullable int, and a ``Literal`` here would turn an additive server-side status
+    into a client crash.
+    """
+
+    id: str
+    app_id: str
+    domain: str
+    records: tuple[ComposedRecord, ...]
+    recipe: str | None
+    status: str
+    tier: int | None
+    detected_provider: str | None
+    #: The ``DomainConnection.id`` once the session finalized; ``None`` until then.
+    connection_id: str | None
+    created_at: datetime
+    expires_at: datetime
+    #: Derived server-side at read (``expires_at <= now``), so it is already ``True``
+    #: in the window before the reaper persists ``status == "expired"``. Trust this
+    #: over ``status`` when you need to know whether the session is over.
+    expired: bool
+    raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
+
+    @classmethod
+    def _from_api(cls, payload: Any) -> IntegratorSession:
+        data = _obj(payload, "session")
+        return cls(
+            id=_req_str(data, "id"),
+            app_id=_req_str(data, "appId"),
+            domain=_req_str(data, "domain"),
+            records=tuple(ComposedRecord._from_api(item) for item in _req_list(data, "records")),
+            recipe=_opt_str(data, "recipe"),
+            status=_req_str(data, "status"),
+            tier=_opt_int(data, "tier"),
+            detected_provider=_opt_str(data, "detectedProvider"),
+            connection_id=_opt_str(data, "connectionId"),
+            created_at=_req_datetime(data, "createdAt"),
+            expires_at=_req_datetime(data, "expiresAt"),
+            expired=_req_bool(data, "expired"),
             raw=data,
         )
 
@@ -504,6 +664,13 @@ class Connection:
 
     ``status`` keeps the last observed DNS health even after a disconnect — read
     ``disconnected_at is not None`` as "monitoring stopped", not ``status``.
+
+    **Read :attr:`record_fqdns`, not :attr:`fqdn`.** ``fqdn`` has always been
+    written as the session's *domain*, so a connection verified for the record
+    ``status.acme.com`` reports ``fqdn="acme.com"``. It is not fixable in place (a
+    session may carry several records, so there is no single honest "the" fqdn) and
+    it keeps its value for the integrators already reading it. Treat it as an
+    alias of :attr:`domain`.
     """
 
     id: str
@@ -517,6 +684,11 @@ class Connection:
     broken_at: datetime | None
     disconnected_at: datetime | None
     created_at: datetime
+    #: Every fully-qualified name doDomain actually monitors for this connection.
+    #: Additive on the wire, so it carries a default and sits after the original
+    #: fields; empty only for a session whose records are missing or malformed, or
+    #: for a payload recorded before the API grew the field.
+    record_fqdns: tuple[str, ...] = ()
     raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
 
     @classmethod
@@ -534,6 +706,7 @@ class Connection:
             broken_at=_opt_datetime(data, "brokenAt"),
             disconnected_at=_opt_datetime(data, "disconnectedAt"),
             created_at=_req_datetime(data, "createdAt"),
+            record_fqdns=tuple(str(item) for item in _opt_list(data, "recordFqdns")),
             raw=data,
         )
 
@@ -636,3 +809,138 @@ class ReverifyResult:
     def _from_api(cls, payload: Any) -> ReverifyResult:
         data = _obj(payload, "reverify result")
         return cls(accepted=_req_bool(data, "accepted"), raw=data)
+
+
+@dataclass(frozen=True, slots=True)
+class WebhookEndpoint:
+    """One delivery target for your app's webhooks.
+
+    **No ``secret`` field, ever.** The signing secret is returned once, by
+    ``create`` and by ``rotate_secret``, on :class:`WebhookEndpointWithSecret`. A
+    secret on this shape would turn "list your endpoints" into a
+    secret-disclosure endpoint, so no read surface carries one.
+    """
+
+    id: str
+    app_id: str
+    #: The *normalized* URL the server stored, not the string you sent — a
+    #: trailing-slash variant comes back canonical.
+    url: str
+    created_at: datetime
+    raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
+
+    @classmethod
+    def _from_api(cls, payload: Any) -> WebhookEndpoint:
+        data = _obj(payload, "webhook endpoint")
+        return cls(
+            id=_req_str(data, "id"),
+            app_id=_req_str(data, "appId"),
+            url=_req_str(data, "url"),
+            created_at=_req_datetime(data, "createdAt"),
+            raw=data,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class WebhookEndpointWithSecret:
+    """An endpoint plus its plaintext signing secret — **shown once**.
+
+    Returned only by ``webhook_endpoints.create`` and
+    ``webhook_endpoints.rotate_secret``. Persist :attr:`secret` from this object
+    now: no read surface returns it again, and rotation is the only way back.
+
+    A sibling of :class:`WebhookEndpoint` rather than a subclass of it, so that a
+    value carrying a secret can never be passed where a secret-free summary is
+    expected — and so ``isinstance(x, WebhookEndpoint)`` stays a reliable "this one
+    is safe to log".
+
+    Rotation is an **immediate cutover** — the worker reads the secret live at
+    delivery time, so signatures switch at once, including retries of deliveries
+    created before the rotation. There is no dual-secret window, so deploy the new
+    secret to your receiver promptly.
+    """
+
+    id: str
+    app_id: str
+    url: str
+    created_at: datetime
+    #: ``whsec_…`` — store it now. Kept out of ``repr`` so an exception traceback
+    #: or a debug print of this object cannot spill the signing secret into a log.
+    secret: str = field(repr=False)
+    raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
+
+    @property
+    def endpoint(self) -> WebhookEndpoint:
+        """The same endpoint without the secret, safe to hand onward or log."""
+        return WebhookEndpoint(
+            id=self.id,
+            app_id=self.app_id,
+            url=self.url,
+            created_at=self.created_at,
+            raw=self.raw,
+        )
+
+    @classmethod
+    def _from_api(cls, payload: Any) -> WebhookEndpointWithSecret:
+        data = _obj(payload, "webhook endpoint")
+        return cls(
+            id=_req_str(data, "id"),
+            app_id=_req_str(data, "appId"),
+            url=_req_str(data, "url"),
+            created_at=_req_datetime(data, "createdAt"),
+            secret=_req_str(data, "secret"),
+            raw=data,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class DeletedWebhookEndpoint:
+    """The acknowledgement of ``webhook_endpoints.delete``.
+
+    A body rather than a bare 204 so an automated caller can log *what* it removed.
+    Past deliveries survive as evidence, but a failed one can no longer be
+    redriven — deleting an endpoint is not reversible.
+    """
+
+    id: str
+    deleted: bool
+    raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
+
+    @classmethod
+    def _from_api(cls, payload: Any) -> DeletedWebhookEndpoint:
+        data = _obj(payload, "delete result")
+        return cls(id=_req_str(data, "id"), deleted=_req_bool(data, "deleted"), raw=data)
+
+
+@dataclass(frozen=True, slots=True)
+class RotatedSecretKey:
+    """The result of ``keys.rotate`` — a new secret key, **shown once**.
+
+    :attr:`secret_key` is the only copy that will ever exist. There is no grace
+    window: the previous key stopped authenticating the instant this response was
+    produced, so a caller that drops it has locked itself out of the API and must
+    rotate again from the dashboard.
+
+    :attr:`public_key` is echoed *unchanged* — it identifies the app in the widget
+    and is not rotated here. Assert on it to prove a CI job rewrote the right app's
+    secret.
+    """
+
+    app_id: str
+    public_key: str
+    #: Kept out of ``repr`` for the same reason the webhook secret is: a traceback
+    #: that prints this object must not put a live credential in your logs.
+    secret_key: str = field(repr=False)
+    rotated_at: datetime
+    raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
+
+    @classmethod
+    def _from_api(cls, payload: Any) -> RotatedSecretKey:
+        data = _obj(payload, "rotated key")
+        return cls(
+            app_id=_req_str(data, "appId"),
+            public_key=_req_str(data, "publicKey"),
+            secret_key=_req_str(data, "secretKey"),
+            rotated_at=_req_datetime(data, "rotatedAt"),
+            raw=data,
+        )

@@ -153,6 +153,18 @@ class PermissionError_(DoDomainAPIError):
             return scope if isinstance(scope, str) else None
         return None
 
+    @property
+    def secret_key_required(self) -> bool:
+        """True when the endpoint refuses OAuth tokens and wants a ``dd_sk_`` key.
+
+        The webhook-endpoint and key-rotation routes are secret-key-only, and the
+        API says so with 403 + ``details.code == "SECRET_KEY_REQUIRED"`` rather than
+        401 — the token is perfectly valid, it simply has no authority here, and a
+        401 would send you off re-minting a token that was never the problem. There
+        is no scope that fixes this: build a client from the app's secret key.
+        """
+        return self._detail_field("code") == "SECRET_KEY_REQUIRED"
+
 
 class NotFoundError(DoDomainAPIError):
     """404 ``not_found``.
