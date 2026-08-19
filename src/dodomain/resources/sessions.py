@@ -181,6 +181,12 @@ class Sessions:
         Raises:
             NotFoundError: No such token.
             ExpiredError: The session's 24h TTL has elapsed.
+            AuthenticationError: If ``token`` is not ``dd_sess_``-shaped. One server
+                path serves both arms and picks between them *structurally* off that
+                prefix, so a malformed value is routed to the authed arm — which this
+                method sends no credential to. A garbled token therefore answers
+                **401, not 404**; verified against production, and surprising enough
+                to be worth knowing before you debug it as an auth problem.
         """
         return PublicSession._from_api(
             self._client.request(RequestSpec("GET", _token_path(token), auth=False))

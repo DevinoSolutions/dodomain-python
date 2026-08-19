@@ -163,7 +163,11 @@ def test_the_authed_arm_reads_the_session_back_by_its_id(client: DoDomain, creat
     state = client.sessions.get(created_session.id)
     assert state.id == created_session.id
     assert state.app_id
-    assert state.status == "pending"
+    # Deliberately NOT pinned to a literal: `created_session` is module-scoped and
+    # the detect step above persists `status: "detected"` on it, so the value here
+    # depends on test order. The sibling test below asserts the thing that actually
+    # matters — that both read arms report the SAME status at the same moment.
+    assert state.status
     assert state.expired is False
     assert state.connection_id is None, "an unverified session has no connection yet"
     assert state.records, "the authed arm always composes the record names"
@@ -231,9 +235,29 @@ def test_the_secret_key_only_routes_are_deployed_and_reject_a_bad_credential() -
 
 
 def test_an_unknown_session_token_raises_not_found(client: DoDomain) -> None:
+    # The value must be dd_sess_-SHAPED. `GET /v1/sessions/:tokenOrId` picks its
+    # arm structurally off that prefix, so a segment without it is routed to the
+    # AUTHED arm instead — see the test below, which pins that consequence.
     with pytest.raises(NotFoundError) as excinfo:
-        client.sessions.retrieve("definitely-not-a-token")
+        client.sessions.retrieve("dd_sess_definitely-not-a-real-token")
     assert excinfo.value.status_code == 404
+
+
+def test_a_token_that_is_not_token_shaped_reaches_the_authed_arm_and_401s(
+    client: DoDomain,
+) -> None:
+    """The consequence of one path serving two arms, pinned against the real API.
+
+    Regression guard: this suite used to pass a bare ``"definitely-not-a-token"``
+    to ``retrieve`` and expect 404. It was correct until the API grew the
+    integrator-authed id arm, after which that segment stops looking like a token,
+    is routed to the arm that requires a credential, and — because ``retrieve``
+    sends none — answers 401. Nothing in the SDK changed; the API's behavior did,
+    and only a live run could tell us.
+    """
+    with pytest.raises(AuthenticationError) as excinfo:
+        client.sessions.retrieve("definitely-not-a-token")
+    assert excinfo.value.status_code == 401
 
 
 def test_a_bogus_secret_key_raises_an_authentication_error() -> None:
