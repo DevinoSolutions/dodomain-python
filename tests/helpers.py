@@ -48,6 +48,34 @@ CREATE_SESSION_RESPONSE: dict[str, Any] = {
     "token": "tok_live_abc123",
     "expiresAt": "2026-08-06T12:00:00.000Z",
     "connectUrl": "https://app.dodomain.io/connect/tok_live_abc123",
+    # `records` is required on the wire today; it and `warnings` arrived after the
+    # SDK's first release, which is why LEGACY_CREATE_SESSION_RESPONSE below still
+    # has to parse.
+    "records": [{"type": "CNAME", "host": "app", "fqdn": "app.app.customer.com"}],
+}
+
+#: A create response exactly as the API shipped it before `records`/`warnings`
+#: existed — the shape a cached or archived payload still has.
+LEGACY_CREATE_SESSION_RESPONSE: dict[str, Any] = {
+    key: value for key, value in CREATE_SESSION_RESPONSE.items() if key != "records"
+}
+
+#: The authed-by-id read (`sessions.get`) — a DIFFERENT shape from the
+#: token-public one: composed records with no `value`, plus appId/connectionId/
+#: expired and no returnUrl.
+INTEGRATOR_SESSION_RESPONSE: dict[str, Any] = {
+    "id": "cs_01HZX",
+    "appId": "app_1",
+    "domain": "app.customer.com",
+    "records": [{"type": "CNAME", "host": "app", "fqdn": "app.app.customer.com"}],
+    "recipe": None,
+    "status": "verified",
+    "tier": 2,
+    "detectedProvider": "Cloudflare",
+    "connectionId": "conn_1",
+    "createdAt": "2026-08-05T12:00:00.000Z",
+    "expiresAt": "2026-08-06T12:00:00.000Z",
+    "expired": False,
 }
 
 PUBLIC_SESSION_RESPONSE: dict[str, Any] = {
@@ -133,7 +161,11 @@ def connection(**overrides: Any) -> dict[str, Any]:
         "appId": "app_1",
         "sessionId": "cs_01HZX",
         "domain": "app.customer.com",
+        # `fqdn` really is the session DOMAIN on the wire, not a record name —
+        # the field the API froze rather than repaired. `recordFqdns` carries the
+        # names actually monitored, which is why the two differ here on purpose.
         "fqdn": "app.customer.com",
+        "recordFqdns": ["status.app.customer.com"],
         "status": "active",
         "verifiedAt": "2026-08-01T10:00:00.000Z",
         "lastCheckedAt": "2026-08-05T10:00:00.000Z",
@@ -143,6 +175,30 @@ def connection(**overrides: Any) -> dict[str, Any]:
     }
     payload.update(overrides)
     return payload
+
+
+def webhook_endpoint(**overrides: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": "whe_1",
+        "appId": "app_1",
+        "url": "https://acme.example/webhooks/dodomain",
+        "createdAt": "2026-08-01T09:00:00.000Z",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def webhook_endpoint_with_secret(**overrides: Any) -> dict[str, Any]:
+    overrides.setdefault("secret", "whsec_shown_once")
+    return webhook_endpoint(**overrides)
+
+
+ROTATED_KEY_RESPONSE: dict[str, Any] = {
+    "appId": "app_1",
+    "publicKey": "dd_pk_live_abc",
+    "secretKey": "dd_sk_live_the_new_one",
+    "rotatedAt": "2026-08-17T12:00:00.000Z",
+}
 
 
 LIST_APPS_RESPONSE: dict[str, Any] = {

@@ -6,7 +6,7 @@ import httpx
 import pytest
 import respx
 
-from dodomain import InvalidRequestError, NotFoundError
+from dodomain import InvalidRequestError, InvalidResponseError, NotFoundError
 from tests.helpers import DISCONNECT_RESPONSE, TEST_JWT, api, connection, make_client
 
 
@@ -29,6 +29,114 @@ def test_list_sends_every_documented_query_parameter() -> None:
     assert params["limit"] == "25"
     assert params["cursor"] == "cur_1"
     assert params["includeDisconnected"] == "true"
+
+
+@respx.mock
+def test_get_reads_one_connection_by_the_id_webhooks_carry() -> None:
+    route = respx.get(api("/api/v1/connections/conn_1")).mock(
+        return_value=httpx.Response(200, json=connection())
+    )
+    with make_client() as client:
+        conn = client.connections.get("conn_1")
+    assert route.calls[0].request.method == "GET"
+    assert conn.id == "conn_1"
+    assert conn.session_id == "cs_01HZX"
+    assert conn.status == "active"
+
+
+@respx.mock
+def test_get_returns_the_same_shape_as_one_element_of_the_list() -> None:
+    # The route promises a body byte-identical to a list element, so one parser
+    # must serve both — if it ever stops being true, this fails.
+    respx.get(api("/api/v1/connections")).mock(
+        return_value=httpx.Response(200, json={"connections": [connection()], "nextCursor": None})
+    )
+    respx.get(api("/api/v1/connections/conn_1")).mock(
+        return_value=httpx.Response(200, json=connection())
+    )
+    with make_client() as client:
+        from_list = client.connections.list().connections[0]
+        from_get = client.connections.get("conn_1")
+    assert from_get == from_list
+
+
+@respx.mock
+def test_get_returns_a_disconnected_connection_which_list_hides_by_default() -> None:
+    respx.get(api("/api/v1/connections/conn_1")).mock(
+        return_value=httpx.Response(200, json=connection(disconnectedAt="2026-08-05T12:00:00.000Z"))
+    )
+    with make_client() as client:
+        conn = client.connections.get("conn_1")
+    assert conn.disconnected_at == datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc)
+
+
+@respx.mock
+def test_get_on_a_connection_you_do_not_own_is_a_404_not_a_403() -> None:
+    respx.get(api("/api/v1/connections/conn_x")).mock(
+        return_value=httpx.Response(404, json={"error": "not_found"})
+    )
+    with pytest.raises(NotFoundError), make_client() as client:
+        client.connections.get("conn_x")
+
+
+def test_get_refuses_an_empty_connection_id_locally() -> None:
+    with pytest.raises(InvalidRequestError), make_client() as client:
+        client.connections.get("")
+
+
+# ── recordFqdns: the names actually monitored ───────────────────────────────
+
+
+@respx.mock
+def test_record_fqdns_carries_the_monitored_names_which_fqdn_does_not() -> None:
+    # `fqdn` is the session DOMAIN, frozen that way on purpose. A caller reading it
+    # as a record name gets the wrong answer, which is why recordFqdns exists.
+    respx.get(api("/api/v1/connections/conn_1")).mock(
+        return_value=httpx.Response(200, json=connection())
+    )
+    with make_client() as client:
+        conn = client.connections.get("conn_1")
+    assert conn.fqdn == "app.customer.com"
+    assert conn.record_fqdns == ("status.app.customer.com",)
+
+
+@respx.mock
+def test_a_connection_recorded_before_record_fqdns_existed_still_parses() -> None:
+    legacy = connection()
+    del legacy["recordFqdns"]
+    respx.get(api("/api/v1/connections")).mock(
+        return_value=httpx.Response(200, json={"connections": [legacy], "nextCursor": None})
+    )
+    with make_client() as client:
+        conn = client.connections.list().connections[0]
+    assert conn.record_fqdns == ()
+    assert conn.id == "conn_1"
+
+
+@respx.mock
+def test_a_session_with_several_records_reports_every_monitored_name() -> None:
+    respx.get(api("/api/v1/connections")).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "connections": [connection(recordFqdns=["app.customer.com", "_acme.customer.com"])],
+                "nextCursor": None,
+            },
+        )
+    )
+    with make_client() as client:
+        conn = client.connections.list().connections[0]
+    assert conn.record_fqdns == ("app.customer.com", "_acme.customer.com")
+
+
+@respx.mock
+def test_a_non_array_record_fqdns_is_loud_rather_than_silently_empty() -> None:
+    # Absence is history; a present-but-wrong type is drift, and drift must fail.
+    respx.get(api("/api/v1/connections/conn_1")).mock(
+        return_value=httpx.Response(200, json=connection(recordFqdns="app.customer.com"))
+    )
+    with pytest.raises(InvalidResponseError), make_client() as client:
+        client.connections.get("conn_1")
 
 
 @respx.mock

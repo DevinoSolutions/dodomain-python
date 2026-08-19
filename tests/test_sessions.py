@@ -11,6 +11,8 @@ from dodomain import DnsRecord, InvalidRequestError, InvalidResponseError
 from tests.helpers import (
     CREATE_SESSION_RESPONSE,
     DETECT_RESPONSE,
+    INTEGRATOR_SESSION_RESPONSE,
+    LEGACY_CREATE_SESSION_RESPONSE,
     PUBLIC_SESSION_RESPONSE,
     TEST_JWT,
     TEST_KEY,
@@ -232,6 +234,178 @@ def test_create_forwards_an_idempotency_key_even_though_the_api_ignores_it() -> 
             domain="app.customer.com", records=[CNAME], idempotency_key="abc-123"
         )
     assert route.calls[0].request.headers["idempotency-key"] == "abc-123"
+
+
+# ── the composed names a create answers with ────────────────────────────────
+
+
+@respx.mock
+def test_create_reports_the_composed_names_the_session_will_be_verified_at() -> None:
+    # The doubled-label trap: domain "app.customer.com" + host "app" is monitored
+    # at "app.app.customer.com", and this is the only place a caller sees that
+    # before a verify fails.
+    respx.post(api("/api/v1/sessions")).mock(
+        return_value=httpx.Response(200, json=CREATE_SESSION_RESPONSE)
+    )
+    with make_client() as client:
+        session = client.sessions.create(domain="app.customer.com", records=[CNAME])
+    assert len(session.records) == 1
+    assert session.records[0].fqdn == "app.app.customer.com"
+    assert session.records[0].type == "CNAME"
+    assert session.records[0].host == "app"
+    assert not hasattr(session.records[0], "value")
+
+
+@respx.mock
+def test_create_surfaces_a_warning_on_an_otherwise_accepted_session() -> None:
+    respx.post(api("/api/v1/sessions")).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                **CREATE_SESSION_RESPONSE,
+                "warnings": [
+                    {
+                        "code": "duplicate_host_label",
+                        "message": "host 'app' repeats the domain's first label",
+                        "host": "app",
+                        "fqdn": "app.app.customer.com",
+                    }
+                ],
+            },
+        )
+    )
+    with make_client() as client:
+        session = client.sessions.create(domain="app.customer.com", records=[CNAME])
+    # A warning is advisory: the session was created, and nothing raised.
+    assert session.id == "cs_01HZX"
+    assert session.warnings[0].code == "duplicate_host_label"
+    assert session.warnings[0].fqdn == "app.app.customer.com"
+
+
+@respx.mock
+def test_a_clean_create_reports_no_warnings_rather_than_none() -> None:
+    respx.post(api("/api/v1/sessions")).mock(
+        return_value=httpx.Response(200, json=CREATE_SESSION_RESPONSE)
+    )
+    with make_client() as client:
+        assert client.sessions.create(domain="app.customer.com", records=[CNAME]).warnings == ()
+
+
+@respx.mock
+def test_a_create_response_from_before_these_fields_existed_still_parses() -> None:
+    respx.post(api("/api/v1/sessions")).mock(
+        return_value=httpx.Response(200, json=LEGACY_CREATE_SESSION_RESPONSE)
+    )
+    with make_client() as client:
+        session = client.sessions.create(domain="app.customer.com", records=[CNAME])
+    assert session.records == ()
+    assert session.connect_url.startswith("https://app.dodomain.io/connect/")
+
+
+# ── the authed read-by-id arm ───────────────────────────────────────────────
+
+
+@respx.mock
+def test_get_reads_a_session_by_id_with_the_credential_attached() -> None:
+    route = respx.get(api("/api/v1/sessions/cs_01HZX")).mock(
+        return_value=httpx.Response(200, json=INTEGRATOR_SESSION_RESPONSE)
+    )
+    with make_client() as client:
+        session = client.sessions.get("cs_01HZX")
+    assert route.calls[0].request.headers["authorization"] == f"Bearer {TEST_KEY}"
+    assert session.id == "cs_01HZX"
+    assert session.app_id == "app_1"
+    assert session.connection_id == "conn_1"
+    assert session.status == "verified"
+    assert session.created_at == datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc)
+
+
+@respx.mock
+def test_the_authed_arm_answers_composed_records_that_carry_no_value() -> None:
+    # zComposedRecord picks only type/host off the record schema — the value is
+    # deliberately absent, because these are the names monitored, not the contents.
+    respx.get(api("/api/v1/sessions/cs_01HZX")).mock(
+        return_value=httpx.Response(200, json=INTEGRATOR_SESSION_RESPONSE)
+    )
+    with make_client() as client:
+        records = client.sessions.get("cs_01HZX").records
+    assert records[0].fqdn == "app.app.customer.com"
+    assert not hasattr(records[0], "value")
+    assert "value" not in (records[0].raw or {})
+
+
+@respx.mock
+def test_get_reads_an_expired_session_where_retrieve_would_raise_410() -> None:
+    # The whole reason this arm exists: the moment you most want the final state
+    # is after the session died, and the token route answers 410 forever.
+    respx.get(api("/api/v1/sessions/cs_dead")).mock(
+        return_value=httpx.Response(
+            200, json={**INTEGRATOR_SESSION_RESPONSE, "id": "cs_dead", "expired": True}
+        )
+    )
+    with make_client() as client:
+        session = client.sessions.get("cs_dead")
+    assert session.expired is True
+
+
+@respx.mock
+def test_expired_is_trusted_over_a_status_the_reaper_has_not_caught_up_with() -> None:
+    respx.get(api("/api/v1/sessions/cs_01HZX")).mock(
+        return_value=httpx.Response(
+            200, json={**INTEGRATOR_SESSION_RESPONSE, "status": "pending", "expired": True}
+        )
+    )
+    with make_client() as client:
+        session = client.sessions.get("cs_01HZX")
+    assert (session.status, session.expired) == ("pending", True)
+
+
+@respx.mock
+def test_get_reports_no_connection_id_until_the_session_finalizes() -> None:
+    respx.get(api("/api/v1/sessions/cs_01HZX")).mock(
+        return_value=httpx.Response(200, json={**INTEGRATOR_SESSION_RESPONSE, "connectionId": None})
+    )
+    with make_client() as client:
+        assert client.sessions.get("cs_01HZX").connection_id is None
+
+
+@respx.mock
+def test_get_on_a_session_you_do_not_own_is_a_404() -> None:
+    from dodomain import NotFoundError
+
+    respx.get(api("/api/v1/sessions/cs_someone_else")).mock(
+        return_value=httpx.Response(404, json={"error": "not_found"})
+    )
+    with pytest.raises(NotFoundError), make_client() as client:
+        client.sessions.get("cs_someone_else")
+
+
+@respx.mock
+def test_get_refuses_a_session_token_locally_instead_of_reading_the_wrong_arm() -> None:
+    # Handing a token to the authed arm WOULD succeed server-side and answer the
+    # public shape, then fail deep in the parser on a missing appId. Say so early.
+    route = respx.get(api("/api/v1/sessions/dd_sess_abc")).mock(
+        return_value=httpx.Response(200, json=PUBLIC_SESSION_RESPONSE)
+    )
+    with pytest.raises(InvalidRequestError) as excinfo, make_client() as client:
+        client.sessions.get("dd_sess_abc")
+    assert route.call_count == 0
+    assert "sessions.retrieve" in str(excinfo.value)
+
+
+def test_get_refuses_an_empty_session_id_locally() -> None:
+    with pytest.raises(InvalidRequestError), make_client() as client:
+        client.sessions.get("  ")
+
+
+@respx.mock
+def test_a_session_id_is_url_encoded_into_the_authed_path() -> None:
+    route = respx.get(api("/api/v1/sessions/cs%2F1")).mock(
+        return_value=httpx.Response(200, json=INTEGRATOR_SESSION_RESPONSE)
+    )
+    with make_client() as client:
+        client.sessions.get("cs/1")
+    assert route.call_count == 1
 
 
 # ── token-public reads ──────────────────────────────────────────────────────

@@ -21,13 +21,17 @@ from tests.helpers import (
     CREATE_SESSION_RESPONSE,
     DETECT_RESPONSE,
     DISCONNECT_RESPONSE,
+    INTEGRATOR_SESSION_RESPONSE,
     LIST_APPS_RESPONSE,
     PUBLIC_SESSION_RESPONSE,
+    ROTATED_KEY_RESPONSE,
     VERIFY_RESPONSE,
     api,
     connection,
     make_async_client,
     make_client,
+    webhook_endpoint,
+    webhook_endpoint_with_secret,
 )
 
 CNAME = DnsRecord(type="CNAME", host="app", value="cname.dodomain.io")
@@ -138,6 +142,105 @@ CASES: list[tuple[str, Callable[[], None], SyncCall, AsyncCall]] = [
         lambda c: c.apps.list(),
         lambda c: c.apps.list(),
     ),
+    (
+        "sessions.get",
+        lambda: (
+            respx.get(api("/api/v1/sessions/cs_01HZX")).mock(
+                return_value=httpx.Response(200, json=INTEGRATOR_SESSION_RESPONSE)
+            )
+            and None
+        ),
+        lambda c: c.sessions.get("cs_01HZX"),
+        lambda c: c.sessions.get("cs_01HZX"),
+    ),
+    (
+        "connections.get",
+        lambda: (
+            respx.get(api("/api/v1/connections/conn_1")).mock(
+                return_value=httpx.Response(200, json=connection())
+            )
+            and None
+        ),
+        lambda c: c.connections.get("conn_1"),
+        lambda c: c.connections.get("conn_1"),
+    ),
+    (
+        "webhook_endpoints.list",
+        lambda: (
+            respx.get(api("/api/v1/webhook-endpoints")).mock(
+                return_value=httpx.Response(200, json={"endpoints": [webhook_endpoint()]})
+            )
+            and None
+        ),
+        lambda c: c.webhook_endpoints.list(),
+        lambda c: c.webhook_endpoints.list(),
+    ),
+    (
+        "webhook_endpoints.get",
+        lambda: (
+            respx.get(api("/api/v1/webhook-endpoints")).mock(
+                return_value=httpx.Response(200, json={"endpoints": [webhook_endpoint()]})
+            )
+            and None
+        ),
+        lambda c: c.webhook_endpoints.get("whe_1"),
+        lambda c: c.webhook_endpoints.get("whe_1"),
+    ),
+    (
+        "webhook_endpoints.create",
+        lambda: (
+            respx.post(api("/api/v1/webhook-endpoints")).mock(
+                return_value=httpx.Response(201, json=webhook_endpoint_with_secret())
+            )
+            and None
+        ),
+        lambda c: c.webhook_endpoints.create(url="https://acme.example/hook"),
+        lambda c: c.webhook_endpoints.create(url="https://acme.example/hook"),
+    ),
+    (
+        "webhook_endpoints.update",
+        lambda: (
+            respx.patch(api("/api/v1/webhook-endpoints/whe_1")).mock(
+                return_value=httpx.Response(200, json=webhook_endpoint(url="https://a.example/v2"))
+            )
+            and None
+        ),
+        lambda c: c.webhook_endpoints.update("whe_1", url="https://a.example/v2"),
+        lambda c: c.webhook_endpoints.update("whe_1", url="https://a.example/v2"),
+    ),
+    (
+        "webhook_endpoints.delete",
+        lambda: (
+            respx.delete(api("/api/v1/webhook-endpoints/whe_1")).mock(
+                return_value=httpx.Response(200, json={"id": "whe_1", "deleted": True})
+            )
+            and None
+        ),
+        lambda c: c.webhook_endpoints.delete("whe_1"),
+        lambda c: c.webhook_endpoints.delete("whe_1"),
+    ),
+    (
+        "webhook_endpoints.rotate_secret",
+        lambda: (
+            respx.post(api("/api/v1/webhook-endpoints/whe_1/rotate-secret")).mock(
+                return_value=httpx.Response(200, json=webhook_endpoint_with_secret())
+            )
+            and None
+        ),
+        lambda c: c.webhook_endpoints.rotate_secret("whe_1"),
+        lambda c: c.webhook_endpoints.rotate_secret("whe_1"),
+    ),
+    (
+        "keys.rotate",
+        lambda: (
+            respx.post(api("/api/v1/keys/rotate")).mock(
+                return_value=httpx.Response(200, json=ROTATED_KEY_RESPONSE)
+            )
+            and None
+        ),
+        lambda c: c.keys.rotate(),
+        lambda c: c.keys.rotate(),
+    ),
 ]
 
 
@@ -193,6 +296,44 @@ async def test_the_async_client_sends_no_credential_on_token_public_routes() -> 
     async with make_async_client() as client:
         await client.sessions.detect("tok")
     assert "authorization" not in route.calls[0].request.headers
+
+
+def test_both_clients_expose_the_same_resources_with_the_same_method_names() -> None:
+    """The structural guard the case list above cannot give.
+
+    A parametrized case only proves the methods someone remembered to add a case
+    for. This proves the two trees are the same shape, so a resource or method
+    added to one client and forgotten on the other fails here immediately.
+    """
+    sync_client = DoDomain(secret_key="dd_sk_test_key")
+    async_client = AsyncDoDomain(secret_key="dd_sk_test_key")
+
+    def resources(client: object) -> dict[str, set[str]]:
+        names = {
+            name
+            for name in vars(client)
+            if not name.startswith("_") and hasattr(getattr(client, name), "__class__")
+        }
+        return {
+            name: {
+                method
+                for method in dir(getattr(client, name))
+                if not method.startswith("_") and callable(getattr(getattr(client, name), method))
+            }
+            for name in names
+            if type(getattr(client, name)).__module__.startswith("dodomain.resources")
+        }
+
+    assert resources(async_client) == resources(sync_client)
+    # And the tree is non-trivial, so an empty-vs-empty comparison cannot pass.
+    assert set(resources(sync_client)) == {
+        "apps",
+        "connections",
+        "domains",
+        "keys",
+        "sessions",
+        "webhook_endpoints",
+    }
 
 
 def test_no_sync_httpx_client_is_ever_constructed_on_the_async_path(

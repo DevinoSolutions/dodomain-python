@@ -7,8 +7,10 @@ You mint a **connect session**, send the customer to a hosted flow that detects
 their DNS provider and walks them through (or one-clicks) the records, and you get
 a signed webhook when the domain goes live.
 
-This SDK covers **all 9 REST operations**, sync and async, plus webhook signature
-verification.
+This SDK covers **all 16 callable REST operations**, sync and async, plus webhook
+signature verification. (The API's other four routes are browser navigations that
+answer `302` on every path; the SDK exposes them as URL builders and never fetches
+them.)
 
 ## Install
 
@@ -59,14 +61,39 @@ session = client.sessions.create(
 
 print(session.connect_url)  # send your customer here
 print(session.expires_at)  # 24 hours from now, timezone-aware
+
+for record in session.records:
+    print(record.fqdn)  # the name we will actually verify — check this
 ```
 
 Render `session.connect_url` as a link or redirect. When the customer finishes,
 doDomain fires a `connection.verified` webhook carrying `session.id` as
 `sessionId`, so you can correlate it back to the row you just wrote.
 
-You can also drive the flow yourself with the **token-public** routes — they take
-the session token in the path as the capability and send no credential at all:
+**Read `session.records` before you show the customer anything.** The API composes
+each `host` under your `domain`, so `domain="links.acme.com"` with `host="links"`
+is verified at `links.links.acme.com` — a doubled label that used to surface only
+as a mysteriously failing verify. `session.warnings` carries advisories about a
+request that was accepted anyway (`duplicate_host_label` is the one that exists
+today); a warning never changes the status code.
+
+### Reading a session back
+
+Two different reads, and the difference matters. **From your server, use
+`sessions.get(session_id)`** — it takes your credential, it is addressable by the
+`sessionId` every webhook carries, and it still answers after the session expired:
+
+```python
+state = client.sessions.get("cs_01HZX")
+state.status  # "verified"
+state.expired  # True once the 24h TTL passed — even before the reaper catches up
+state.connection_id  # the DomainConnection id, or None if it never finalized
+state.records  # composed names (type/host/fqdn) — no `value` on this arm
+```
+
+The **token-public** routes are the other read: they take the session token in the
+path as the capability, send no credential at all, and are what a browser or a
+customer-side process can call:
 
 ```python
 public = client.sessions.retrieve(session.token)  # status, records, detected tier
@@ -76,6 +103,9 @@ result = client.sessions.verify(session.token)  # check live DNS now
 for record in result.records:
     print(record.fqdn, record.type, record.outcome)
 ```
+
+`retrieve` raises `ExpiredError` forever once the TTL passes — correct for a
+capability URL, useless for support, which is exactly why `get` exists.
 
 Two endpoints are **browser navigations**, not API calls — they answer `302` on
 every path. The SDK exposes them as URL builders so you can render your own CTA,
@@ -118,6 +148,12 @@ A connection is a customer domain that went live. doDomain keeps checking its DN
 and tells you when it drifts.
 
 ```python
+# Hold an id from a webhook? Read that one connection directly.
+conn = client.connections.get("conn_123")
+conn.status  # "active" | "broken"
+conn.record_fqdns  # ("status.customer.com",) — the names we actually monitor
+conn.disconnected_at  # not None => monitoring stopped
+
 page = client.connections.list(limit=100)
 page.connections  # tuple[Connection, ...]
 page.next_cursor  # str | None — opaque, pass it straight back
@@ -151,7 +187,67 @@ result.already_disconnected  # False on the call that did it, True on a repeat
 
 A connection owned by another app or team answers **404, never 403** — the API
 refuses to confirm that someone else's id exists, and this SDK does not
-reinterpret that as a permission problem.
+reinterpret that as a permission problem. `get` is the exception to the list's
+default in one way: it *does* return a disconnected connection, because a caller
+naming an id already knows the row exists.
+
+> **Read `record_fqdns`, not `fqdn`.** `Connection.fqdn` has always been written
+> as the session's *domain*, so a connection verified for `status.acme.com`
+> reports `fqdn="acme.com"`. It cannot be fixed in place — a session may carry
+> several records, so there is no single honest "the" fqdn — and it keeps its
+> value for the integrators already reading it. `record_fqdns` carries the real
+> answer: every name doDomain monitors for that connection.
+
+## Webhook endpoints
+
+Manage delivery targets from CI or IaC instead of the dashboard. **Secret-key
+only** — an OAuth token is refused with a 403 whose
+`exc.secret_key_required` is `True`.
+
+```python
+endpoint = client.webhook_endpoints.create(url="https://acme.example/webhooks/dodomain")
+endpoint.secret  # "whsec_…" — SHOWN ONCE. Store it now.
+
+for e in client.webhook_endpoints.list():
+    print(e.id, e.url)  # never carries a secret
+
+client.webhook_endpoints.update("whe_123", url="https://acme.example/v2")  # secret unchanged
+rotated = client.webhook_endpoints.rotate_secret("whe_123")
+rotated.secret  # the new one, also shown once
+
+client.webhook_endpoints.delete("whe_123")
+```
+
+Three things that will bite if assumed away:
+
+* **The signing secret is show-once.** `create` and `rotate_secret` return it and
+  nothing else ever does. It is kept out of the object's `repr` so a traceback
+  cannot spill it into your logs; read it off `.secret`.
+* **Rotation is an immediate cutover.** There is no dual-secret window: signatures
+  switch the moment the call returns, including retries of deliveries created
+  before it. Deploy the new secret to your receiver first.
+* **`get(endpoint_id)` is a client-side lookup over `list()`** — the API has no
+  read-one route — so it costs one list request, and the `NotFoundError` it raises
+  carries `status_code == 0` because no 404 came back from the server.
+
+## Rotating your secret key
+
+```python
+rotated = client.keys.rotate()
+rotated.secret_key  # the NEW dd_sk_… — the only copy that will ever exist
+rotated.public_key  # unchanged, so CI can assert it rewrote the right app
+```
+
+**There is no grace window.** The key you authenticated the call with stops
+working the instant the response is produced. Write `rotated.secret_key` to your
+secret store before doing anything else — drop it and you are locked out until you
+rotate again from the dashboard. The client you called it on still holds the old
+key; build a new one from the result.
+
+There is deliberately no `keys.create`, `keys.list` or `keys.revoke`: key
+inventory stays behind a human dashboard session, so a stolen key can never mint a
+second hidden credential that survives you rotating the one you know about.
+Rotating *is* the revoke.
 
 ## Domain pre-flight check
 
@@ -186,6 +282,7 @@ doDomain signs every delivery Stripe-style:
 ```
 x-dodomain-signature: t=<unix millis>,v1=<hex sha256 hmac>
 x-dodomain-event: connection.verified
+x-dodomain-delivery-id: whd_…
 ```
 
 Verify against the **raw** request body, before any JSON parsing — re-serializing
@@ -218,15 +315,37 @@ async def handle(request):
   attacker cannot turn a crafted header into a 500 inside your handler.
 * Comparison is constant-time.
 
+### The delivered body
+
+```json
+{
+  "id": "whd_…",
+  "type": "connection.verified",
+  "occurredAt": "2026-08-17T10:00:00.000Z",
+  "data": { "sessionId": "cs_…", "connectionId": "conn_…" },
+  "event": "connection.verified"
+}
+```
+
+Read `type`. **Dedupe on `id`** — it is stable across retries and is the same
+value as the `x-dodomain-delivery-id` header, so you can dedupe before parsing the
+body at all. `event` is a **deprecated** alias of `type`, byte-identical to it,
+kept only so receivers written before the 2026-08-06 envelope cutover keep
+parsing; do not write new code against it.
+
+`data` always carries `sessionId` as your correlation handle, and every payload
+that announces a connection also carries `connectionId` — the id
+`connections.get` / `reverify` / `disconnect` are keyed by.
+
 Event types: `connection.verified`, `connection.failed`,
 `connection.disconnected`, `session.completed`, `session.abandoned`. A receiver
 that does not recognise a type must ignore it — the vocabulary grows additively.
 
-> **No typed event parser ships in 0.1.0, on purpose.** The delivered body is
-> still the legacy `{event, data}` shape while the versioned `{id, type,
-> occurredAt, data}` envelope waits on a deliberate cutover. `verify_webhook`
-> only checks the HMAC and is wire-format agnostic, so it is safe across that
-> change; a typed parser would not be.
+> **No typed event parser ships, on purpose.** Both the event vocabulary and the
+> payload fields grow additively, so a strict parser would reject a delivery the
+> day the API adds a type — exactly the failure a webhook receiver must not have.
+> `verify_webhook` checks the HMAC and nothing else, which is what makes it safe
+> across every additive change.
 
 ## Error handling
 
@@ -353,9 +472,13 @@ Python and TypeScript verifiers drifting apart.
 DODOMAIN_SECRET_KEY="dd_sk_…" pytest tests/e2e -v
 ```
 
-This SDK is hand-written against the API's zod contract
-(`packages/core/src/schemas.ts`) and its route handlers — doDomain publishes no
-OpenAPI document, so there is nothing to generate from.
+This SDK is hand-written, not generated. doDomain does publish an OpenAPI 3.1
+document — <https://dodomain.io/docs/openapi.json>, generated from the same zod
+schemas the route handlers validate with — and it is the right thing to check this
+SDK's shapes against, but the hand-written surface is deliberate: the naming, the
+sync/async twins, the local validation and the docstrings that explain *why* an
+endpoint behaves the way it does are the product here, and none of them survive a
+generator.
 
 ## License
 

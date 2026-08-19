@@ -20,7 +20,7 @@ webhook verifier, the models those return, and the exception hierarchy.
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from ._client import AsyncDoDomain, DoDomain
 from ._transport import DEFAULT_BASE_URL, RateLimitSnapshot
@@ -44,25 +44,32 @@ from .errors import (
 from .models import (
     App,
     CheckDomainResult,
+    ComposedRecord,
     Confidence,
     Connection,
     ConnectionPage,
     ConnectionStatus,
+    DeletedWebhookEndpoint,
     DetectResult,
     DisconnectResult,
     DnsRecord,
     DnsRecordType,
     DomainConnectDiscovery,
     DomainConnectRef,
+    IntegratorSession,
     Method,
     ProviderGuide,
     PublicSession,
     ReverifyResult,
+    RotatedSecretKey,
     Session,
+    SessionWarning,
     Tier,
     VerifyOutcome,
     VerifyRecord,
     VerifyResult,
+    WebhookEndpoint,
+    WebhookEndpointWithSecret,
 )
 from .webhooks import DEFAULT_TOLERANCE_MS, SIGNATURE_HEADER, verify_webhook
 
@@ -74,11 +81,13 @@ __all__ = [
     "AsyncDoDomain",
     "AuthenticationError",
     "CheckDomainResult",
+    "ComposedRecord",
     "Confidence",
     "ConflictError",
     "Connection",
     "ConnectionPage",
     "ConnectionStatus",
+    "DeletedWebhookEndpoint",
     "DetectResult",
     "DisconnectResult",
     "DnsRecord",
@@ -91,6 +100,7 @@ __all__ = [
     "DomainConnectDiscovery",
     "DomainConnectRef",
     "ExpiredError",
+    "IntegratorSession",
     "InternalServerError",
     "InvalidRequestError",
     "InvalidResponseError",
@@ -104,11 +114,15 @@ __all__ = [
     "RateLimitError",
     "RateLimitSnapshot",
     "ReverifyResult",
+    "RotatedSecretKey",
     "Session",
+    "SessionWarning",
     "Tier",
     "VerifyOutcome",
     "VerifyRecord",
     "VerifyResult",
+    "WebhookEndpoint",
+    "WebhookEndpointWithSecret",
     "__version__",
     "verify_webhook",
 ]
