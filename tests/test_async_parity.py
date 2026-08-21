@@ -25,6 +25,7 @@ from tests.helpers import (
     LIST_APPS_RESPONSE,
     PUBLIC_SESSION_RESPONSE,
     ROTATED_KEY_RESPONSE,
+    ROTATED_KEY_WITH_OVERLAP_RESPONSE,
     VERIFY_RESPONSE,
     api,
     connection,
@@ -240,6 +241,17 @@ CASES: list[tuple[str, Callable[[], None], SyncCall, AsyncCall]] = [
         ),
         lambda c: c.keys.rotate(),
         lambda c: c.keys.rotate(),
+    ),
+    (
+        "keys.rotate(overlap_hours=24)",
+        lambda: (
+            respx.post(api("/api/v1/keys/rotate")).mock(
+                return_value=httpx.Response(200, json=ROTATED_KEY_WITH_OVERLAP_RESPONSE)
+            )
+            and None
+        ),
+        lambda c: c.keys.rotate(overlap_hours=24),
+        lambda c: c.keys.rotate(overlap_hours=24),
     ),
 ]
 

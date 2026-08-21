@@ -4,7 +4,7 @@ import dodomain
 
 
 def test_version_is_the_single_source_of_truth() -> None:
-    assert dodomain.__version__ == "0.2.0"
+    assert dodomain.__version__ == "0.3.0"
 
 
 def test_the_user_agent_reports_that_same_version() -> None:

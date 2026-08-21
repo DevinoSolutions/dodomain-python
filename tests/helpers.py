@@ -193,11 +193,26 @@ def webhook_endpoint_with_secret(**overrides: Any) -> dict[str, Any]:
     return webhook_endpoint(**overrides)
 
 
+#: A default (zero-overlap) rotation: `previousKeyExpiresAt` is present and null
+#: because the old key is already dead.
 ROTATED_KEY_RESPONSE: dict[str, Any] = {
     "appId": "app_1",
     "publicKey": "dd_pk_live_abc",
     "secretKey": "dd_sk_live_the_new_one",
     "rotatedAt": "2026-08-17T12:00:00.000Z",
+    "previousKeyExpiresAt": None,
+}
+
+#: The same rotation asked for a 24h window — the only field that differs.
+ROTATED_KEY_WITH_OVERLAP_RESPONSE: dict[str, Any] = {
+    **ROTATED_KEY_RESPONSE,
+    "previousKeyExpiresAt": "2026-08-18T12:00:00.000Z",
+}
+
+#: A rotate response exactly as the API shipped it before overlap windows
+#: existed — the shape a cached or archived payload still has.
+LEGACY_ROTATED_KEY_RESPONSE: dict[str, Any] = {
+    key: value for key, value in ROTATED_KEY_RESPONSE.items() if key != "previousKeyExpiresAt"
 }
 
 

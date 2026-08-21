@@ -45,6 +45,7 @@ __all__ = [
     "PublicSession",
     "ReverifyResult",
     "RotatedSecretKey",
+    "RotationOverlapHours",
     "Session",
     "SessionWarning",
     "Tier",
@@ -64,9 +65,19 @@ VerifyOutcome = Literal["verified", "propagating", "absent", "indeterminate", "d
 ApexToken = Literal["@", "(blank)", "%domain%"]
 WarningCode = Literal["duplicate_host_label"]
 
+#: How long the *previous* secret key keeps authenticating after a rotation.
+#: ``0`` — the default — is an immediate cutover; ``1`` and ``24`` are the only
+#: windows the API offers. Transcribed from ``zRotateAppSecretKeyInput`` in
+#: ``packages/core/src/schemas.ts``; the server refuses anything else.
+RotationOverlapHours = Literal[0, 1, 24]
+
 #: Every DNS record type a connect session may request, from the app repo's one
 #: record-type home (``packages/core/src/record-capabilities.ts``).
 RECORD_TYPES: tuple[str, ...] = ("A", "AAAA", "CNAME", "TXT", "MX")
+
+#: The overlap windows ``keys.rotate`` accepts, for the runtime check the
+#: ``Literal`` above only makes at type-check time.
+OVERLAP_HOURS_VALUES: tuple[int, ...] = (0, 1, 24)
 
 
 # ── payload readers ─────────────────────────────────────────────────────────
@@ -916,10 +927,15 @@ class DeletedWebhookEndpoint:
 class RotatedSecretKey:
     """The result of ``keys.rotate`` — a new secret key, **shown once**.
 
-    :attr:`secret_key` is the only copy that will ever exist. There is no grace
-    window: the previous key stopped authenticating the instant this response was
-    produced, so a caller that drops it has locked itself out of the API and must
-    rotate again from the dashboard.
+    :attr:`secret_key` is the only copy that will ever exist, whichever overlap you
+    asked for. With the default immediate cutover the previous key stopped
+    authenticating the instant this response was produced, so a caller that drops
+    the new one has locked itself out of the API and must rotate again from the
+    dashboard.
+
+    :attr:`previous_key_expires_at` is the whole difference an overlap window
+    makes: ``None`` when the old key is already dead, otherwise the moment it
+    stops authenticating.
 
     :attr:`public_key` is echoed *unchanged* — it identifies the app in the widget
     and is not rotated here. Assert on it to prove a CI job rewrote the right app's
@@ -932,6 +948,11 @@ class RotatedSecretKey:
     #: that prints this object must not put a live credential in your logs.
     secret_key: str = field(repr=False)
     rotated_at: datetime
+    #: When the PREVIOUS key stops authenticating, or ``None`` if it already has
+    #: (a zero-overlap rotation, which is the default). Only ever one previous
+    #: key exists — a later rotation replaces it and kills key n-1 immediately.
+    #: Also ``None`` on a response recorded before the field existed.
+    previous_key_expires_at: datetime | None = None
     raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
 
     @classmethod
@@ -942,5 +963,6 @@ class RotatedSecretKey:
             public_key=_req_str(data, "publicKey"),
             secret_key=_req_str(data, "secretKey"),
             rotated_at=_req_datetime(data, "rotatedAt"),
+            previous_key_expires_at=_opt_datetime(data, "previousKeyExpiresAt"),
             raw=data,
         )
