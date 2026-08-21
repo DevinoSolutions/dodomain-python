@@ -2,6 +2,37 @@
 
 Notable changes to `dodomain-sdk`. The import package is `dodomain`.
 
+## 0.3.0
+
+Parity with the rotation-overlap contract the API shipped on 2026-08-20 (and
+`@dodomain/node` 0.4.0). Purely additive: `keys.rotate()` with no argument sends
+the identical body-less request it always did and still means an immediate
+cutover, so upgrading from 0.2.0 is a drop-in.
+
+### Added
+
+* **`keys.rotate(overlap_hours=...)`** — `0` (the default), `1` or `24`. A window
+  keeps the **old key authenticating alongside the new one** until it closes, so
+  a rotator can deploy the new key with zero downtime instead of racing its own
+  cutover. Only a requested window puts a body on the wire; the default stays the
+  request every server version has always accepted. A value the API does not
+  offer is refused locally with `InvalidRequestError` and `status_code == 0`,
+  before the call that would mint a credential — including `True`, which `== 1`
+  would otherwise have bought as an unasked-for one-hour window.
+* **`RotatedSecretKey.previous_key_expires_at`** — when the previous key stops
+  authenticating, or `None` if it already has. Parses tolerantly, so a response
+  recorded before the field existed still reads as a zero-overlap rotation.
+* **`RotationOverlapHours`** — the `Literal[0, 1, 24]` alias, exported so callers
+  can type a configured window rather than pass a bare `int`.
+
+### Changed
+
+* The docs for `keys.rotate` no longer say rotation has no grace window
+  unconditionally: the **default** has none, and it is also the kill switch — a
+  zero-overlap rotation terminates a window still running from an earlier one.
+  **Exactly one previous key is ever kept**, so rotating twice in a row kills key
+  n-1 immediately regardless of its remaining window.
+
 ## 0.2.0
 
 Full parity with the API's current `/v1` surface: every callable REST operation

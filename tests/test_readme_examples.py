@@ -26,6 +26,7 @@ from tests.helpers import (
     LIST_APPS_RESPONSE,
     PUBLIC_SESSION_RESPONSE,
     ROTATED_KEY_RESPONSE,
+    ROTATED_KEY_WITH_OVERLAP_RESPONSE,
     VERIFY_RESPONSE,
     api,
     connection,
@@ -204,6 +205,17 @@ def test_the_key_rotation_block_runs() -> None:
         rotated = client.keys.rotate()
     assert rotated.secret_key.startswith("dd_sk_")
     assert rotated.public_key == "dd_pk_live_abc"
+    assert rotated.previous_key_expires_at is None
+
+
+@respx.mock
+def test_the_zero_downtime_rotation_block_runs() -> None:
+    respx.post(api("/api/v1/keys/rotate")).mock(
+        return_value=httpx.Response(200, json=ROTATED_KEY_WITH_OVERLAP_RESPONSE)
+    )
+    with make_client() as client:
+        rotated = client.keys.rotate(overlap_hours=24)
+    assert rotated.previous_key_expires_at is not None
 
 
 @respx.mock

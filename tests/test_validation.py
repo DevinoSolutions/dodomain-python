@@ -8,6 +8,7 @@ from dodomain import DnsRecord, InvalidRequestError
 from dodomain._validation import (
     validate_create_session,
     validate_domain,
+    validate_overlap_hours,
     validate_records,
     validate_return_url,
 )
@@ -95,3 +96,28 @@ def test_a_valid_body_contains_only_the_fields_that_were_supplied() -> None:
         "domain": "app.customer.com",
         "records": [{"type": "CNAME", "host": "app", "value": "cname.dodomain.io"}],
     }
+
+
+@pytest.mark.parametrize("value", [0, 1, 24])
+def test_the_three_rotation_windows_the_api_offers_are_returned_unchanged(value: int) -> None:
+    assert validate_overlap_hours(value) == value
+
+
+@pytest.mark.parametrize("value", [2, 12, 25, -1, 48])
+def test_a_rotation_window_the_api_does_not_offer_is_rejected(value: int) -> None:
+    with pytest.raises(InvalidRequestError):
+        validate_overlap_hours(value)
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_a_boolean_overlap_is_rejected_despite_being_an_int_in_python(value: bool) -> None:
+    # `True == 1` and `False == 0`, so a plain membership test would quietly read
+    # `overlap_hours=True` as a one-hour window the caller never named.
+    with pytest.raises(InvalidRequestError):
+        validate_overlap_hours(value)
+
+
+@pytest.mark.parametrize("value", [None, "24", 24.0, object()])
+def test_a_non_integer_overlap_is_rejected(value: object) -> None:
+    with pytest.raises(InvalidRequestError):
+        validate_overlap_hours(value)

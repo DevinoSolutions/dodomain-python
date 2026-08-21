@@ -20,7 +20,7 @@ webhook verifier, the models those return, and the exception hierarchy.
 
 from __future__ import annotations
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from ._client import AsyncDoDomain, DoDomain
 from ._transport import DEFAULT_BASE_URL, RateLimitSnapshot
@@ -62,6 +62,7 @@ from .models import (
     PublicSession,
     ReverifyResult,
     RotatedSecretKey,
+    RotationOverlapHours,
     Session,
     SessionWarning,
     Tier,
@@ -115,6 +116,7 @@ __all__ = [
     "RateLimitSnapshot",
     "ReverifyResult",
     "RotatedSecretKey",
+    "RotationOverlapHours",
     "Session",
     "SessionWarning",
     "Tier",

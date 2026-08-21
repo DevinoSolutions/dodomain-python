@@ -15,9 +15,9 @@ from collections.abc import Iterable, Sequence
 from urllib.parse import urlsplit
 
 from .errors import InvalidRequestError
-from .models import RECORD_TYPES, DnsRecord
+from .models import OVERLAP_HOURS_VALUES, RECORD_TYPES, DnsRecord
 
-__all__ = ["validate_create_session"]
+__all__ = ["validate_create_session", "validate_overlap_hours"]
 
 # Two-or-more DNS labels, <=63 chars each, no leading/trailing hyphen. Case is
 # accepted as sent (DNS is case-insensitive) but a trailing root dot is not: the
@@ -71,6 +71,31 @@ def validate_return_url(return_url: str) -> str:
     if parts.username or parts.password:
         raise _reject("returnUrl must not contain embedded credentials.")
     return value
+
+
+def validate_overlap_hours(overlap_hours: object) -> int:
+    """Return the requested rotation overlap, or raise before any request is sent.
+
+    The API takes ``0 | 1 | 24`` and nothing else, so an arbitrary number is a
+    mistake worth naming here rather than as a server-side 400 — this call mints
+    a credential, and the least useful moment to learn the argument was wrong is
+    while wondering whether the old key is still alive.
+
+    ``True`` is refused despite ``True == 1``: a boolean here is a caller who
+    meant "yes, overlap" and would silently get a one-hour window they never
+    named.
+    """
+    if isinstance(overlap_hours, bool) or not isinstance(overlap_hours, int):
+        raise _reject(
+            f"overlap_hours must be one of {OVERLAP_HOURS_VALUES} "
+            f"(got {type(overlap_hours).__name__})."
+        )
+    if overlap_hours not in OVERLAP_HOURS_VALUES:
+        raise _reject(
+            f"overlap_hours must be one of {OVERLAP_HOURS_VALUES}; "
+            f"{overlap_hours} is not a window doDomain offers."
+        )
+    return overlap_hours
 
 
 def validate_records(records: Sequence[DnsRecord] | Iterable[DnsRecord]) -> list[dict[str, object]]:

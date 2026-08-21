@@ -236,13 +236,36 @@ Three things that will bite if assumed away:
 rotated = client.keys.rotate()
 rotated.secret_key  # the NEW dd_sk_… — the only copy that will ever exist
 rotated.public_key  # unchanged, so CI can assert it rewrote the right app
+rotated.previous_key_expires_at  # None: the old key is already dead
 ```
 
-**There is no grace window.** The key you authenticated the call with stops
-working the instant the response is produced. Write `rotated.secret_key` to your
-secret store before doing anything else — drop it and you are locked out until you
-rotate again from the dashboard. The client you called it on still holds the old
-key; build a new one from the result.
+**The default is an immediate cutover.** The key you authenticated the call with
+stops working the instant the response is produced. Write `rotated.secret_key` to
+your secret store before doing anything else — drop it and you are locked out
+until you rotate again from the dashboard. The client you called it on still
+holds the old key; build a new one from the result.
+
+### Rotating with no downtime
+
+If you cannot deploy the new key in the same breath, ask for an overlap window
+and **both keys authenticate** until it closes:
+
+```python
+rotated = client.keys.rotate(overlap_hours=24)  # 0 (default), 1 or 24
+rotated.previous_key_expires_at  # when the OLD key stops working
+```
+
+Rotate, ship `rotated.secret_key` everywhere, and let the old one lapse on its
+own. Three things to hold on to:
+
+* **Exactly one previous key is ever kept.** Rotating again overwrites that slot
+  and kills key n-1 immediately, whatever was left of its window — so the safe
+  rhythm is rotate, deploy, *then* rotate again, never two rotations in a row.
+* **A zero-overlap rotation is the kill switch.** `keys.rotate()` with the
+  default also terminates a window still running from an earlier rotation, which
+  is how you revoke a previous key early.
+* The client you called it on keeps using the key it was built with, so within a
+  window it keeps working; past the window its next call is a `401`.
 
 There is deliberately no `keys.create`, `keys.list` or `keys.revoke`: key
 inventory stays behind a human dashboard session, so a stolen key can never mint a
