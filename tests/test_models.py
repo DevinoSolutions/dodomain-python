@@ -5,7 +5,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from dodomain import Connection, DnsRecord, InvalidResponseError, ProviderGuide, Session
+from dodomain import (
+    Connection,
+    ConnectSessionSummary,
+    DnsRecord,
+    InvalidResponseError,
+    ProviderGuide,
+    Session,
+)
 from dodomain.models import parse_datetime
 from tests.helpers import CREATE_SESSION_RESPONSE, PROVIDER_GUIDE, connection
 
@@ -109,11 +116,21 @@ def test_a_guide_apex_token_outside_the_documented_union_is_rejected() -> None:
 
 
 def test_the_session_url_builders_encode_an_awkward_token() -> None:
-    session = Session._from_api(
+    session = ConnectSessionSummary._from_api(
         {**CREATE_SESSION_RESPONSE, "token": "a b/c"}, base_url="https://app.dodomain.io"
     )
     assert session.cloudflare_start_url.endswith("/sessions/a%20b%2Fc/cloudflare/start")
     assert session.domain_connect_start_url.endswith("/sessions/a%20b%2Fc/domain-connect/start")
+
+
+def test_the_deprecated_session_alias_is_the_same_class_not_a_copy() -> None:
+    # `Session` was the name through 0.3.0. It must stay the SAME class object so
+    # existing `isinstance` checks, equality and pickles keep working — a subclass
+    # or a second dataclass would fork the two names silently, which is exactly
+    # what `@dodomain/node`'s type-level pin prevents on the TypeScript side.
+    assert Session is ConnectSessionSummary
+    parsed = Session._from_api(CREATE_SESSION_RESPONSE, base_url="https://app.dodomain.io")
+    assert isinstance(parsed, ConnectSessionSummary)
 
 
 def test_a_boolean_is_not_accepted_where_an_integer_is_required() -> None:

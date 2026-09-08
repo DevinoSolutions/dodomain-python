@@ -22,11 +22,11 @@ from dodomain._transport import RequestSpec
 from dodomain._validation import validate_create_session
 from dodomain.errors import InvalidRequestError
 from dodomain.models import (
+    ConnectSessionSummary,
     DetectResult,
     DnsRecord,
     IntegratorSession,
     PublicSession,
-    Session,
     VerifyResult,
 )
 
@@ -108,7 +108,7 @@ class Sessions:
         recipe: str | None = None,
         return_url: str | None = None,
         idempotency_key: str | None = None,
-    ) -> Session:
+    ) -> ConnectSessionSummary:
         """Mint a connect session and get the URL to send the customer to.
 
         Args:
@@ -128,7 +128,7 @@ class Sessions:
                 call mints a new session, token and quota unit.
 
         Returns:
-            The new :class:`~dodomain.models.Session`.
+            The new :class:`~dodomain.models.ConnectSessionSummary`.
 
         Raises:
             InvalidRequestError: Locally, before any HTTP request, when the input
@@ -144,7 +144,9 @@ class Sessions:
             is_oauth=self._client.is_oauth,
             idempotency_key=idempotency_key,
         )
-        return Session._from_api(self._client.request(spec), base_url=self._client.base_url)
+        return ConnectSessionSummary._from_api(
+            self._client.request(spec), base_url=self._client.base_url
+        )
 
     def get(self, session_id: str) -> IntegratorSession:
         """Read a session back **by id**, with your credential.
@@ -228,7 +230,7 @@ class AsyncSessions:
         recipe: str | None = None,
         return_url: str | None = None,
         idempotency_key: str | None = None,
-    ) -> Session:
+    ) -> ConnectSessionSummary:
         """Mint a connect session. See :meth:`Sessions.create`."""
         spec = _spec_create(
             domain=domain,
@@ -239,7 +241,9 @@ class AsyncSessions:
             is_oauth=self._client.is_oauth,
             idempotency_key=idempotency_key,
         )
-        return Session._from_api(await self._client.request(spec), base_url=self._client.base_url)
+        return ConnectSessionSummary._from_api(
+            await self._client.request(spec), base_url=self._client.base_url
+        )
 
     async def get(self, session_id: str) -> IntegratorSession:
         """Read a session back by id, authed. See :meth:`Sessions.get`."""

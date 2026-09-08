@@ -32,6 +32,7 @@ __all__ = [
     "Connection",
     "ConnectionPage",
     "ConnectionStatus",
+    "ConnectSessionSummary",
     "DeletedWebhookEndpoint",
     "DetectResult",
     "DisconnectResult",
@@ -49,6 +50,9 @@ __all__ = [
     "Session",
     "SessionWarning",
     "Tier",
+    "TlsIssuanceAdvisory",
+    "TlsIssuanceAdvisoryCode",
+    "TlsIssuanceAdvisorySeverity",
     "VerifyOutcome",
     "VerifyRecord",
     "VerifyResult",
@@ -65,6 +69,19 @@ VerifyOutcome = Literal["verified", "propagating", "absent", "indeterminate", "d
 ApexToken = Literal["@", "(blank)", "%domain%"]
 WarningCode = Literal["duplicate_host_label"]
 
+#: Why a certificate issuance for a verified name may still fail. Transcribed
+#: from ``TLS_ISSUANCE_ADVISORY_CODES`` in the app repo
+#: (``packages/core/src/tls-issuance-advisories.ts``).
+TlsIssuanceAdvisoryCode = Literal[
+    "caa_excludes_issuer",
+    "caa_restricts_issuance",
+    "stale_acme_challenge",
+    "tls_issuance_unchecked",
+]
+
+#: ``warning`` plausibly breaks issuance; ``info`` is a fact without a verdict.
+TlsIssuanceAdvisorySeverity = Literal["warning", "info"]
+
 #: How long the *previous* secret key keeps authenticating after a rotation.
 #: ``0`` — the default — is an immediate cutover; ``1`` and ``24`` are the only
 #: windows the API offers. Transcribed from ``zRotateAppSecretKeyInput`` in
@@ -74,6 +91,16 @@ RotationOverlapHours = Literal[0, 1, 24]
 #: Every DNS record type a connect session may request, from the app repo's one
 #: record-type home (``packages/core/src/record-capabilities.ts``).
 RECORD_TYPES: tuple[str, ...] = ("A", "AAAA", "CNAME", "TXT", "MX")
+
+#: The advisory codes and severities, for the runtime check the ``Literal``s
+#: above only make at type-check time.
+TLS_ISSUANCE_ADVISORY_CODES: tuple[str, ...] = (
+    "caa_excludes_issuer",
+    "caa_restricts_issuance",
+    "stale_acme_challenge",
+    "tls_issuance_unchecked",
+)
+TLS_ISSUANCE_ADVISORY_SEVERITIES: tuple[str, ...] = ("warning", "info")
 
 #: The overlap windows ``keys.rotate`` accepts, for the runtime check the
 #: ``Literal`` above only makes at type-check time.
@@ -304,8 +331,71 @@ class SessionWarning:
 
 
 @dataclass(frozen=True, slots=True)
-class Session:
+class TlsIssuanceAdvisory:
+    """Why a certificate issuance for a verified name may still fail.
+
+    Read from the domain's own nameservers on every verify pass (CAA policy plus
+    a stale ``_acme-challenge`` record) and carried on four surfaces: the
+    :class:`VerifyResult`, the :class:`IntegratorSession` read, and the
+    ``connection.verified`` / ``session.completed`` webhook payloads.
+
+    **It is advice about YOUR next step — issuing the certificate — and never
+    part of the verify verdict.** ``verified`` and ``present`` are computed
+    without it, so a consumer that ignores this field sees exactly the
+    pre-advisory contract.
+
+    An empty list means "we looked and found nothing". A check that could not
+    complete is itself an entry (``tls_issuance_unchecked``), never silence —
+    unknown is not the same answer as clean.
+
+    Attributes:
+        code: ``caa_excludes_issuer`` — a CAA policy leaves out the CA configured
+            on the app (:attr:`App.tls_issuer_ca`).
+            ``caa_restricts_issuance`` — a CAA policy exists and no CA is
+            configured to judge it against.
+            ``stale_acme_challenge`` — ``_acme-challenge.<fqdn>`` already holds a
+            TXT or CNAME.
+            ``tls_issuance_unchecked`` — the check itself could not complete.
+        severity: ``warning`` plausibly breaks issuance for you; ``info`` is a
+            fact we could not turn into a verdict.
+        fqdn: The name the certificate is for.
+        evidence_fqdn: Where the evidence was read — the CAA owner name (which may
+            be a parent of ``fqdn``), or ``_acme-challenge.<fqdn>``.
+        evidence: The published values behind the verdict, verbatim.
+        note: One human-readable sentence.
+    """
+
+    code: TlsIssuanceAdvisoryCode
+    severity: TlsIssuanceAdvisorySeverity
+    fqdn: str
+    evidence_fqdn: str
+    evidence: tuple[str, ...]
+    note: str
+    raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
+
+    @classmethod
+    def _from_api(cls, payload: Any) -> TlsIssuanceAdvisory:
+        data = _obj(payload, "tls issuance advisory")
+        return cls(
+            code=_literal(data, "code", TLS_ISSUANCE_ADVISORY_CODES),
+            severity=_literal(data, "severity", TLS_ISSUANCE_ADVISORY_SEVERITIES),
+            fqdn=_req_str(data, "fqdn"),
+            evidence_fqdn=_req_str(data, "evidenceFqdn"),
+            evidence=_str_list(data, "evidence"),
+            note=_req_str(data, "note"),
+            raw=data,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectSessionSummary:
     """A freshly minted connect session — the response of ``sessions.create``.
+
+    Named for what it is: the summary of ONE connect session. The old name,
+    ``Session``, was the third meaning of "session" in the platform (there is
+    also the dashboard login session and the server-side ``ConnectSession`` row),
+    so ``@dodomain/node`` 0.5.0 renamed its twin to ``ConnectSessionSummary`` and
+    this SDK follows. :data:`Session` remains as a deprecated alias.
 
     Attributes:
         id: Stable session id; it is also the ``sessionId`` on every webhook.
@@ -352,7 +442,7 @@ class Session:
         return f"{self.base_url}/api/v1/sessions/{quote(self.token, safe='')}/domain-connect/start"
 
     @classmethod
-    def _from_api(cls, payload: Any, *, base_url: str) -> Session:
+    def _from_api(cls, payload: Any, *, base_url: str) -> ConnectSessionSummary:
         data = _obj(payload, "session")
         return cls(
             id=_req_str(data, "id"),
@@ -364,6 +454,15 @@ class Session:
             base_url=base_url,
             raw=data,
         )
+
+
+#: Deprecated alias for :class:`ConnectSessionSummary`, kept so existing
+#: ``from dodomain import Session`` imports and ``isinstance`` checks keep
+#: working. It is the SAME class object, not a subclass or a copy, so equality
+#: and ``repr`` are unchanged. ``@dodomain/node`` 0.5.0 made the same move and
+#: marked its alias for removal in the next major; this one goes at the same
+#: time. Switch your imports now.
+Session = ConnectSessionSummary
 
 
 @dataclass(frozen=True, slots=True)
@@ -447,6 +546,11 @@ class IntegratorSession:
     #: in the window before the reaper persists ``status == "expired"``. Trust this
     #: over ``status`` when you need to know whether the session is over.
     expired: bool
+    #: The TLS-issuance advisories the LAST verify pass computed — a snapshot of
+    #: DNS at that moment, not a live read, and empty until a verify has run.
+    #: Additive on the wire, so it carries a default and sits after the original
+    #: fields; see :class:`TlsIssuanceAdvisory`.
+    tls_issuance_advisories: tuple[TlsIssuanceAdvisory, ...] = ()
     raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
 
     @classmethod
@@ -465,6 +569,10 @@ class IntegratorSession:
             created_at=_req_datetime(data, "createdAt"),
             expires_at=_req_datetime(data, "expiresAt"),
             expired=_req_bool(data, "expired"),
+            tls_issuance_advisories=tuple(
+                TlsIssuanceAdvisory._from_api(item)
+                for item in _opt_list(data, "tlsIssuanceAdvisories")
+            ),
             raw=data,
         )
 
@@ -631,6 +739,14 @@ class VerifyRecord:
     note: str
     outcome: VerifyOutcome
     authoritative_error: str | None = None
+    #: What the domain's OWN nameservers answered for this name. This is the set
+    #: ``present`` is decided from; when it disagrees with what you asked for, it
+    #: is the answer to "what did they put there instead". Additive on the wire.
+    authoritative_found: tuple[str, ...] = ()
+    #: The same answers from a public recursive resolver. Informational only — it
+    #: never gates ``present``, and trailing :attr:`authoritative_found` is the
+    #: ordinary, healthy meaning of ``outcome == "propagating"``. Additive.
+    public_found: tuple[str, ...] = ()
     raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
 
     @classmethod
@@ -647,16 +763,28 @@ class VerifyRecord:
                 ("verified", "propagating", "absent", "indeterminate", "domain_not_found"),
             ),
             authoritative_error=_opt_str(data, "authoritativeError"),
+            authoritative_found=tuple(str(item) for item in _opt_list(data, "authoritativeFound")),
+            public_found=tuple(str(item) for item in _opt_list(data, "publicFound")),
             raw=data,
         )
 
 
 @dataclass(frozen=True, slots=True)
 class VerifyResult:
-    """The result of checking a session's records against live DNS."""
+    """The result of checking a session's records against live DNS.
+
+    :attr:`advisories` is about the certificate you will issue NEXT, not about
+    whether the records are there — it never feeds :attr:`verified`. Ignoring it
+    leaves you with exactly the pre-advisory contract.
+    """
 
     verified: bool
     records: tuple[VerifyRecord, ...]
+    #: TLS-issuance advisories for this session's TLS-terminating records
+    #: (A/AAAA/CNAME), read on the same pass. Empty means "we looked and found
+    #: nothing"; a check that could not complete is an entry, not silence.
+    #: Additive on the wire, so it carries a default.
+    advisories: tuple[TlsIssuanceAdvisory, ...] = ()
     raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
 
     @classmethod
@@ -665,6 +793,9 @@ class VerifyResult:
         return cls(
             verified=_req_bool(data, "verified"),
             records=tuple(VerifyRecord._from_api(item) for item in _req_list(data, "records")),
+            advisories=tuple(
+                TlsIssuanceAdvisory._from_api(item) for item in _opt_list(data, "advisories")
+            ),
             raw=data,
         )
 
@@ -762,6 +893,12 @@ class App:
     logo_url: str | None
     brand_color: str | None
     created_at: datetime
+    #: The CAA issuer-domain your end-user certificates are issued with (e.g.
+    #: ``"letsencrypt.org"``); ``None`` until it is configured in the dashboard.
+    #: It is what turns a CAA policy into a ``caa_excludes_issuer`` advisory
+    #: rather than the weaker ``caa_restricts_issuance``. Additive on the wire,
+    #: so it carries a default and sits after the original fields.
+    tls_issuer_ca: str | None = None
     raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
 
     @classmethod
@@ -775,6 +912,7 @@ class App:
             logo_url=_opt_str(data, "logoUrl"),
             brand_color=_opt_str(data, "brandColor"),
             created_at=_req_datetime(data, "createdAt"),
+            tls_issuer_ca=_opt_str(data, "tlsIssuerCa"),
             raw=data,
         )
 

@@ -20,7 +20,7 @@ webhook verifier, the models those return, and the exception hierarchy.
 
 from __future__ import annotations
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 from ._client import AsyncDoDomain, DoDomain
 from ._transport import DEFAULT_BASE_URL, RateLimitSnapshot
@@ -49,6 +49,7 @@ from .models import (
     Connection,
     ConnectionPage,
     ConnectionStatus,
+    ConnectSessionSummary,
     DeletedWebhookEndpoint,
     DetectResult,
     DisconnectResult,
@@ -66,6 +67,9 @@ from .models import (
     Session,
     SessionWarning,
     Tier,
+    TlsIssuanceAdvisory,
+    TlsIssuanceAdvisoryCode,
+    TlsIssuanceAdvisorySeverity,
     VerifyOutcome,
     VerifyRecord,
     VerifyResult,
@@ -88,6 +92,7 @@ __all__ = [
     "Connection",
     "ConnectionPage",
     "ConnectionStatus",
+    "ConnectSessionSummary",
     "DeletedWebhookEndpoint",
     "DetectResult",
     "DisconnectResult",
@@ -120,6 +125,9 @@ __all__ = [
     "Session",
     "SessionWarning",
     "Tier",
+    "TlsIssuanceAdvisory",
+    "TlsIssuanceAdvisoryCode",
+    "TlsIssuanceAdvisorySeverity",
     "VerifyOutcome",
     "VerifyRecord",
     "VerifyResult",
