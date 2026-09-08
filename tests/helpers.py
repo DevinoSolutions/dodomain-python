@@ -60,6 +60,19 @@ LEGACY_CREATE_SESSION_RESPONSE: dict[str, Any] = {
     key: value for key, value in CREATE_SESSION_RESPONSE.items() if key != "records"
 }
 
+#: One TLS-issuance advisory, exactly as `zTlsIssuanceAdvisory` puts it on the
+#: wire. The SAME shape rides on four surfaces (the verify response, the authed
+#: session read, and the `connection.verified` / `session.completed` webhook
+#: payloads), which is why it is one constant here rather than four literals.
+TLS_ISSUANCE_ADVISORY: dict[str, Any] = {
+    "code": "caa_excludes_issuer",
+    "severity": "warning",
+    "fqdn": "app.customer.com",
+    "evidenceFqdn": "customer.com",
+    "evidence": ['issue "digicert.com"'],
+    "note": "The CAA policy on customer.com does not allow letsencrypt.org to issue.",
+}
+
 #: The authed-by-id read (`sessions.get`) — a DIFFERENT shape from the
 #: token-public one: composed records with no `value`, plus appId/connectionId/
 #: expired and no returnUrl.
@@ -76,6 +89,15 @@ INTEGRATOR_SESSION_RESPONSE: dict[str, Any] = {
     "createdAt": "2026-08-05T12:00:00.000Z",
     "expiresAt": "2026-08-06T12:00:00.000Z",
     "expired": False,
+    "tlsIssuanceAdvisories": [TLS_ISSUANCE_ADVISORY],
+}
+
+#: The authed read exactly as the API shipped it before advisories existed — the
+#: shape a cached or archived payload still has.
+LEGACY_INTEGRATOR_SESSION_RESPONSE: dict[str, Any] = {
+    key: value
+    for key, value in INTEGRATOR_SESSION_RESPONSE.items()
+    if key != "tlsIssuanceAdvisories"
 }
 
 PUBLIC_SESSION_RESPONSE: dict[str, Any] = {
@@ -142,6 +164,8 @@ VERIFY_RESPONSE: dict[str, Any] = {
             "present": True,
             "note": "matches",
             "outcome": "verified",
+            "authoritativeFound": ["cname.dodomain.io"],
+            "publicFound": ["cname.dodomain.io"],
         },
         {
             "fqdn": "customer.com",
@@ -150,7 +174,26 @@ VERIFY_RESPONSE: dict[str, Any] = {
             "note": "not visible yet",
             "outcome": "propagating",
             "authoritativeError": "NS_RESOLUTION_FAILED",
+            # The healthy meaning of `propagating`: the domain's own nameservers
+            # already answer, the public resolver has not caught up.
+            "authoritativeFound": ["dodomain-verify=abc"],
+            "publicFound": [],
         },
+    ],
+    "advisories": [TLS_ISSUANCE_ADVISORY],
+}
+
+#: A verify response exactly as the API shipped it before `advisories` and the
+#: found-sets existed — the shape a cached or archived payload still has.
+LEGACY_VERIFY_RESPONSE: dict[str, Any] = {
+    "verified": VERIFY_RESPONSE["verified"],
+    "records": [
+        {
+            key: value
+            for key, value in record.items()
+            if key not in ("authoritativeFound", "publicFound")
+        }
+        for record in VERIFY_RESPONSE["records"]
     ],
 }
 
@@ -225,8 +268,16 @@ LIST_APPS_RESPONSE: dict[str, Any] = {
             "sandbox": False,
             "logoUrl": None,
             "brandColor": "#0E6B4E",
+            "tlsIssuerCa": "letsencrypt.org",
             "createdAt": "2026-07-01T00:00:00.000Z",
         }
+    ]
+}
+
+#: The apps list exactly as the API shipped it before `tlsIssuerCa` existed.
+LEGACY_LIST_APPS_RESPONSE: dict[str, Any] = {
+    "apps": [
+        {key: value for key, value in LIST_APPS_RESPONSE["apps"][0].items() if key != "tlsIssuerCa"}
     ]
 }
 

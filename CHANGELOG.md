@@ -2,6 +2,68 @@
 
 Notable changes to `dodomain-sdk`. The import package is `dodomain`.
 
+## 0.4.0
+
+Parity with `@dodomain/node` 0.5.0 and 0.6.0, and with the `/v1` contract changes
+those tracked. Additive apart from one rename that keeps a working alias, so
+upgrading from 0.3.0 is a drop-in.
+
+### Added
+
+* **`TlsIssuanceAdvisory`** — why a certificate issuance for a *verified* name may
+  still fail. Every verify pass now reads the domain's own nameservers for a CAA
+  policy and a stale `_acme-challenge` record and reports what it found:
+  `caa_excludes_issuer`, `caa_restricts_issuance`, `stale_acme_challenge`, or
+  `tls_issuance_unchecked` when the check itself could not complete (unknown is
+  not the same answer as clean). Carries a `severity`, the `fqdn` it is about, the
+  `evidence_fqdn` it was read from — routinely a *parent*, since CAA is inherited
+  — the published `evidence` verbatim, and one human-readable `note`.
+
+  **An advisory never changes the verdict.** `verified` and `present` are computed
+  without it, so ignoring the field leaves you with exactly the 0.3.0 contract.
+* **`VerifyResult.advisories`** — the advisories for this session's
+  TLS-terminating records, read on the same pass as the verify.
+* **`IntegratorSession.tls_issuance_advisories`** — the same shape on
+  `sessions.get`, as a snapshot of what the LAST verify pass computed. Empty until
+  a verify has run; not a live read.
+* **`VerifyRecord.authoritative_found` / `.public_found`** — what the domain's own
+  nameservers answered, and what a public recursive resolver sees. The first is
+  the set `present` is decided from, and the answer to "what did they put there
+  instead"; the second never gates anything, and trailing the first is the
+  ordinary, healthy meaning of `outcome == "propagating"`.
+* **`App.tls_issuer_ca`** — the CA issuer-domain your end-user certificates are
+  issued with, or `None` until it is configured in the dashboard. It is what turns
+  a CAA policy into the actionable `caa_excludes_issuer` rather than the vaguer
+  `caa_restricts_issuance`.
+* `connection.verified` and `session.completed` webhook payloads now carry
+  `tlsIssuanceAdvisories` **when there is at least one** — absent, not empty, when
+  there is nothing to say. There is still deliberately no typed event parser (see
+  `dodomain.webhooks`), so this is a documentation change on the SDK side.
+* **`tests/fixtures/openapi_v1_shapes.json` + `tests/test_openapi_contract.py`** —
+  a mechanical parity guard, in the spirit of `webhook_vectors.json`. The fixture
+  is a verbatim extract of the published OpenAPI component schemas; the test fails
+  if a *required* wire field of `POST /v1/sessions`, `GET /v1/sessions/{token}`
+  (both arms), `POST /v1/sessions/{token}/verify` or `GET /v1/apps` has no field on
+  the matching model, and again if a mapped field does not survive a round trip.
+
+### Changed
+
+* **`Session` is now `ConnectSessionSummary`.** It is the summary of ONE connect
+  session, and "session" already meant two other things in the platform (the
+  dashboard login session, and the server-side `ConnectSession` row).
+  `@dodomain/node` 0.5.0 made the identical rename; this SDK follows so the two
+  keep answering to the same vocabulary. **`Session` still works** — it is an
+  alias bound to the same class object, so `isinstance`, equality and existing
+  imports are unaffected. It is deprecated and will be REMOVED in the next major;
+  switch your imports now.
+
+### Notes
+
+* All new response fields parse tolerantly: a body recorded before the field
+  existed still reads (as `()` / `None`), while a field that is *present* with the
+  wrong type still fails loudly. Same rule as `records` / `recordFqdns` /
+  `previousKeyExpiresAt` before them.
+
 ## 0.3.0
 
 Parity with the rotation-overlap contract the API shipped on 2026-08-20 (and

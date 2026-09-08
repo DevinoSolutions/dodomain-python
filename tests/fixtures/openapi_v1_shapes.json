@@ -1,0 +1,561 @@
+{
+  "_comment": "GENERATED — do not hand-edit. Verbatim extract of the named component schemas from the DoDomain monorepo's committed apps/docs/public/openapi.json, which is itself generated from packages/core/src/schemas.ts. Regenerate with the recipe in tests/test_openapi_contract.py when the API contract moves. tests/test_openapi_contract.py fails if a required wire field here has no field on the matching model.",
+  "apiVersion": "v1",
+  "schemas": {
+    "CreateSessionResponse": {
+      "properties": {
+        "connectUrl": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "expiresAt": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "records": {
+          "items": {
+            "properties": {
+              "fqdn": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "host": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "A",
+                  "AAAA",
+                  "CNAME",
+                  "TXT",
+                  "MX"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "host",
+              "fqdn"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "token": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "properties": {
+              "code": {
+                "enum": [
+                  "duplicate_host_label"
+                ],
+                "type": "string"
+              },
+              "fqdn": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "host": {
+                "type": "string"
+              },
+              "message": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "host",
+              "fqdn"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "token",
+        "expiresAt",
+        "connectUrl",
+        "records"
+      ],
+      "type": "object"
+    },
+    "PublicSession": {
+      "properties": {
+        "detectedProvider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "domain": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "recipe": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "records": {
+          "items": {
+            "properties": {
+              "host": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "priority": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "ttl": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "type": {
+                "enum": [
+                  "A",
+                  "AAAA",
+                  "CNAME",
+                  "TXT",
+                  "MX"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "host",
+              "value"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "returnUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "type": "string"
+        },
+        "tier": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "domain",
+        "records",
+        "recipe",
+        "status",
+        "tier",
+        "detectedProvider",
+        "returnUrl",
+        "expiresAt"
+      ],
+      "type": "object"
+    },
+    "IntegratorSession": {
+      "properties": {
+        "appId": {
+          "type": "string"
+        },
+        "connectionId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "createdAt": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string"
+        },
+        "detectedProvider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "domain": {
+          "type": "string"
+        },
+        "expired": {
+          "type": "boolean"
+        },
+        "expiresAt": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "recipe": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "records": {
+          "items": {
+            "properties": {
+              "fqdn": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "host": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "A",
+                  "AAAA",
+                  "CNAME",
+                  "TXT",
+                  "MX"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "host",
+              "fqdn"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "status": {
+          "type": "string"
+        },
+        "tier": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tlsIssuanceAdvisories": {
+          "items": {
+            "properties": {
+              "code": {
+                "enum": [
+                  "caa_excludes_issuer",
+                  "caa_restricts_issuance",
+                  "stale_acme_challenge",
+                  "tls_issuance_unchecked"
+                ],
+                "type": "string"
+              },
+              "evidence": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "evidenceFqdn": {
+                "type": "string"
+              },
+              "fqdn": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              },
+              "severity": {
+                "enum": [
+                  "warning",
+                  "info"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "severity",
+              "fqdn",
+              "evidenceFqdn",
+              "evidence",
+              "note"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "appId",
+        "domain",
+        "records",
+        "recipe",
+        "status",
+        "tier",
+        "detectedProvider",
+        "connectionId",
+        "createdAt",
+        "expiresAt",
+        "expired",
+        "tlsIssuanceAdvisories"
+      ],
+      "type": "object"
+    },
+    "VerifySessionResponse": {
+      "properties": {
+        "advisories": {
+          "items": {
+            "properties": {
+              "code": {
+                "enum": [
+                  "caa_excludes_issuer",
+                  "caa_restricts_issuance",
+                  "stale_acme_challenge",
+                  "tls_issuance_unchecked"
+                ],
+                "type": "string"
+              },
+              "evidence": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "evidenceFqdn": {
+                "type": "string"
+              },
+              "fqdn": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              },
+              "severity": {
+                "enum": [
+                  "warning",
+                  "info"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "severity",
+              "fqdn",
+              "evidenceFqdn",
+              "evidence",
+              "note"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "records": {
+          "items": {
+            "properties": {
+              "authoritativeError": {
+                "type": "string"
+              },
+              "authoritativeFound": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "fqdn": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              },
+              "outcome": {
+                "enum": [
+                  "verified",
+                  "propagating",
+                  "absent",
+                  "indeterminate",
+                  "domain_not_found"
+                ],
+                "type": "string"
+              },
+              "present": {
+                "type": "boolean"
+              },
+              "publicFound": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "fqdn",
+              "type",
+              "present",
+              "note",
+              "outcome",
+              "authoritativeFound",
+              "publicFound"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "verified": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "verified",
+        "records",
+        "advisories"
+      ],
+      "type": "object"
+    },
+    "ListAppsResponse": {
+      "properties": {
+        "apps": {
+          "items": {
+            "properties": {
+              "brandColor": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "createdAt": {
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "logoUrl": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "publicKey": {
+                "type": "string"
+              },
+              "sandbox": {
+                "type": "boolean"
+              },
+              "tlsIssuerCa": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "publicKey",
+              "sandbox",
+              "logoUrl",
+              "brandColor",
+              "tlsIssuerCa",
+              "createdAt"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "apps"
+      ],
+      "type": "object"
+    }
+  }
+}

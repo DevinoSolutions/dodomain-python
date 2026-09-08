@@ -97,10 +97,12 @@ def test_the_token_public_block_runs() -> None:
         detected = client.sessions.detect(session.token)
         result = client.sessions.verify(session.token)
         rows = [(r.fqdn, r.type, r.outcome) for r in result.records]
+        found = [(r.authoritative_found, r.public_found) for r in result.records]
 
     assert public.status == "pending"
     assert detected.provider == "cloudflare"
     assert rows[0] == ("app.customer.com", "CNAME", "verified")
+    assert found[0] == (("cname.dodomain.io",), ("cname.dodomain.io",))
     assert session.cloudflare_start_url.endswith("/cloudflare/start")
     assert session.domain_connect_start_url.endswith("/domain-connect/start")
 
@@ -165,6 +167,21 @@ def test_the_session_read_back_block_runs() -> None:
     assert state.expired is False
     assert state.connection_id == "conn_1"
     assert state.records[0].fqdn == "app.app.customer.com"
+    assert state.tls_issuance_advisories[0].code == "caa_excludes_issuer"
+
+
+@respx.mock
+def test_the_will_the_certificate_issue_block_runs() -> None:
+    respx.post(api("/api/v1/sessions/tok/verify")).mock(
+        return_value=httpx.Response(200, json=VERIFY_RESPONSE)
+    )
+    with make_client() as client:
+        result = client.sessions.verify("tok")
+    rows = [
+        (a.severity, a.code, a.fqdn, a.note, a.evidence_fqdn, a.evidence) for a in result.advisories
+    ]
+    assert rows[0][:3] == ("warning", "caa_excludes_issuer", "app.customer.com")
+    assert rows[0][4] == "customer.com"
 
 
 @respx.mock
@@ -249,6 +266,7 @@ def test_the_domain_check_and_apps_blocks_run() -> None:
                 "pk_live_abc",
                 False,
             )
+            assert app.tls_issuer_ca == "letsencrypt.org"
 
 
 def test_the_webhook_handler_block_runs_against_the_body_actually_delivered() -> None:

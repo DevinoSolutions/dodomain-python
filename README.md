@@ -77,6 +77,12 @@ as a mysteriously failing verify. `session.warnings` carries advisories about a
 request that was accepted anyway (`duplicate_host_label` is the one that exists
 today); a warning never changes the status code.
 
+> The type `sessions.create` returns is `ConnectSessionSummary`. It was called
+> `Session` through 0.3.0, and `from dodomain import Session` still works — the
+> alias is the same class object, is deprecated, and goes away in the next major.
+> `@dodomain/node` 0.5.0 made the identical rename, for the identical reason:
+> "session" already meant two other things in the platform.
+
 ### Reading a session back
 
 Two different reads, and the difference matters. **From your server, use
@@ -89,6 +95,7 @@ state.status  # "verified"
 state.expired  # True once the 24h TTL passed — even before the reaper catches up
 state.connection_id  # the DomainConnection id, or None if it never finalized
 state.records  # composed names (type/host/fqdn) — no `value` on this arm
+state.tls_issuance_advisories  # what the last verify pass found about certificates
 ```
 
 The **token-public** routes are the other read: they take the session token in the
@@ -102,6 +109,8 @@ result = client.sessions.verify(session.token)  # check live DNS now
 
 for record in result.records:
     print(record.fqdn, record.type, record.outcome)
+    print(record.authoritative_found)  # what their OWN nameservers answered
+    print(record.public_found)  # what a public resolver sees — trails, when propagating
 ```
 
 `retrieve` raises `ExpiredError` forever once the TTL passes — correct for a
@@ -115,6 +124,42 @@ and never fetches them:
 session.cloudflare_start_url  # tier-1 Cloudflare OAuth flow
 session.domain_connect_start_url  # tier-2 Domain Connect one-click
 ```
+
+### Will the certificate issue?
+
+A verified record means DNS points at you. It does not mean a CA will hand you a
+certificate for that name. Every verify pass reads the domain's own nameservers
+for the two things that usually stop issuance and reports them as **advisories**:
+
+```python
+result = client.sessions.verify(session.token)
+
+for advisory in result.advisories:
+    print(advisory.severity, advisory.code, advisory.fqdn)
+    print(advisory.note)  # one human-readable sentence
+    print(advisory.evidence_fqdn, advisory.evidence)  # where we read it, and what it said
+```
+
+| `code`                    | What it means                                                        |
+| ------------------------- | -------------------------------------------------------------------- |
+| `caa_excludes_issuer`     | A CAA policy leaves out the CA your app is configured with            |
+| `caa_restricts_issuance`  | A CAA policy exists and no CA is configured to judge it against       |
+| `stale_acme_challenge`    | `_acme-challenge.<fqdn>` already holds a TXT or CNAME                 |
+| `tls_issuance_unchecked`  | The check itself could not complete — unknown, which is not clean     |
+
+**An advisory never changes the verdict.** `verified` and `present` are computed
+without it, so a consumer that ignores the field sees exactly the contract that
+shipped before advisories existed. `severity` is `"warning"` when it plausibly
+breaks issuance for you and `"info"` when it is a fact we could not turn into a
+verdict. An empty list means we looked and found nothing; a check that could not
+run is an entry, not silence.
+
+The same shape rides on `sessions.get(...).tls_issuance_advisories` (a snapshot
+from the last verify pass, empty until one has run) and, when non-empty, on the
+`connection.verified` and `session.completed` webhook payloads as
+`tlsIssuanceAdvisories`. Configure which CA you issue with in the dashboard — it
+is what turns the vague `caa_restricts_issuance` into the actionable
+`caa_excludes_issuer`, and it reads back as `app.tls_issuer_ca`.
 
 ### Async
 
@@ -293,6 +338,7 @@ check.guide.steps  # copy-ready manual instructions
 ```python
 for app in client.apps.list():
     print(app.id, app.name, app.public_key, app.sandbox)
+    print(app.tls_issuer_ca)  # the CA your certificates are issued with, or None
 ```
 
 A secret key sees exactly its own app — listing siblings would widen a single
@@ -358,7 +404,11 @@ parsing; do not write new code against it.
 
 `data` always carries `sessionId` as your correlation handle, and every payload
 that announces a connection also carries `connectionId` — the id
-`connections.get` / `reverify` / `disconnect` are keyed by.
+`connections.get` / `reverify` / `disconnect` are keyed by. `connection.verified`
+and `session.completed` additionally carry `tlsIssuanceAdvisories` **when there is
+at least one**, in the shape described under
+[Will the certificate issue?](#will-the-certificate-issue) — absent, not empty,
+when there is nothing to say.
 
 Event types: `connection.verified`, `connection.failed`,
 `connection.disconnected`, `session.completed`, `session.abandoned`. A receiver
