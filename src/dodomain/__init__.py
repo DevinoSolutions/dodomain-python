@@ -20,7 +20,7 @@ webhook verifier, the models those return, and the exception hierarchy.
 
 from __future__ import annotations
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 from ._client import AsyncDoDomain, DoDomain
 from ._transport import DEFAULT_BASE_URL, RateLimitSnapshot
@@ -46,6 +46,7 @@ from .models import (
     CheckDomainResult,
     ComposedRecord,
     Confidence,
+    ConnectFontPreset,
     Connection,
     ConnectionPage,
     ConnectionStatus,
@@ -89,6 +90,7 @@ __all__ = [
     "ComposedRecord",
     "Confidence",
     "ConflictError",
+    "ConnectFontPreset",
     "Connection",
     "ConnectionPage",
     "ConnectionStatus",

@@ -29,6 +29,7 @@ __all__ = [
     "CheckDomainResult",
     "ComposedRecord",
     "Confidence",
+    "ConnectFontPreset",
     "Connection",
     "ConnectionPage",
     "ConnectionStatus",
@@ -88,6 +89,10 @@ TlsIssuanceAdvisorySeverity = Literal["warning", "info"]
 #: ``packages/core/src/schemas.ts``; the server refuses anything else.
 RotationOverlapHours = Literal[0, 1, 24]
 
+#: The hosted connect flow's white-label typeface. Transcribed from
+#: ``CONNECT_FONT_PRESETS`` in the app repo (``packages/core/src/schemas.ts``).
+ConnectFontPreset = Literal["system", "humanist", "serif", "rounded"]
+
 #: Every DNS record type a connect session may request, from the app repo's one
 #: record-type home (``packages/core/src/record-capabilities.ts``).
 RECORD_TYPES: tuple[str, ...] = ("A", "AAAA", "CNAME", "TXT", "MX")
@@ -105,6 +110,10 @@ TLS_ISSUANCE_ADVISORY_SEVERITIES: tuple[str, ...] = ("warning", "info")
 #: The overlap windows ``keys.rotate`` accepts, for the runtime check the
 #: ``Literal`` above only makes at type-check time.
 OVERLAP_HOURS_VALUES: tuple[int, ...] = (0, 1, 24)
+
+#: The font presets, for the runtime check :data:`ConnectFontPreset` only makes
+#: at type-check time.
+CONNECT_FONT_PRESETS: tuple[str, ...] = ("system", "humanist", "serif", "rounded")
 
 
 # ── payload readers ─────────────────────────────────────────────────────────
@@ -140,6 +149,15 @@ def _req_bool(payload: dict[str, Any], key: str) -> bool:
     value = payload.get(key)
     if not isinstance(value, bool):
         raise _fail(f"missing or non-boolean field {key!r}", payload)
+    return value
+
+
+def _opt_bool(payload: dict[str, Any], key: str) -> bool | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, bool):
+        raise _fail(f"field {key!r} should be a boolean or null", payload)
     return value
 
 
@@ -899,6 +917,16 @@ class App:
     #: rather than the weaker ``caa_restricts_issuance``. Additive on the wire,
     #: so it carries a default and sits after the original fields.
     tls_issuer_ca: str | None = None
+    #: White-label connect-flow settings (Pro and Scale), as stored; ``None`` until
+    #: configured. They render on the hosted connect flow only while your plan
+    #: includes white-label. Additive on the wire, so they carry defaults.
+    connect_headline: str | None = None
+    connect_subheadline: str | None = None
+    connect_success_cta_label: str | None = None
+    #: Where the success button goes when a session has no ``return_url`` of its own.
+    connect_success_redirect_url: str | None = None
+    connect_font_preset: ConnectFontPreset | None = None
+    hide_connect_footer_help: bool = False
     raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
 
     @classmethod
@@ -913,6 +941,12 @@ class App:
             brand_color=_opt_str(data, "brandColor"),
             created_at=_req_datetime(data, "createdAt"),
             tls_issuer_ca=_opt_str(data, "tlsIssuerCa"),
+            connect_headline=_opt_str(data, "connectHeadline"),
+            connect_subheadline=_opt_str(data, "connectSubheadline"),
+            connect_success_cta_label=_opt_str(data, "connectSuccessCtaLabel"),
+            connect_success_redirect_url=_opt_str(data, "connectSuccessRedirectUrl"),
+            connect_font_preset=_literal(data, "connectFontPreset", (*CONNECT_FONT_PRESETS, None)),
+            hide_connect_footer_help=_opt_bool(data, "hideConnectFooterHelp") or False,
             raw=data,
         )
 
@@ -976,6 +1010,12 @@ class WebhookEndpoint:
     #: trailing-slash variant comes back canonical.
     url: str
     created_at: datetime
+    #: When doDomain AUTO-PAUSED this endpoint — no successful delivery for 7 days
+    #: and at least 5 dead-lettered deliveries in that span — or ``None`` while it
+    #: is delivering normally. While paused, new events are recorded as *skipped*
+    #: deliveries and never sent, until ``webhook_endpoints.resume`` (or an
+    #: ``update`` that actually changes the url) clears it.
+    paused_at: datetime | None = None
     raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
 
     @classmethod
@@ -986,6 +1026,7 @@ class WebhookEndpoint:
             app_id=_req_str(data, "appId"),
             url=_req_str(data, "url"),
             created_at=_req_datetime(data, "createdAt"),
+            paused_at=_opt_datetime(data, "pausedAt"),
             raw=data,
         )
 
@@ -1016,6 +1057,8 @@ class WebhookEndpointWithSecret:
     #: ``whsec_…`` — store it now. Kept out of ``repr`` so an exception traceback
     #: or a debug print of this object cannot spill the signing secret into a log.
     secret: str = field(repr=False)
+    #: See :attr:`WebhookEndpoint.paused_at`.
+    paused_at: datetime | None = None
     raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
 
     @property
@@ -1026,6 +1069,7 @@ class WebhookEndpointWithSecret:
             app_id=self.app_id,
             url=self.url,
             created_at=self.created_at,
+            paused_at=self.paused_at,
             raw=self.raw,
         )
 
@@ -1038,6 +1082,7 @@ class WebhookEndpointWithSecret:
             url=_req_str(data, "url"),
             created_at=_req_datetime(data, "createdAt"),
             secret=_req_str(data, "secret"),
+            paused_at=_opt_datetime(data, "pausedAt"),
             raw=data,
         )
 

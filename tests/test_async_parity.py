@@ -232,6 +232,17 @@ CASES: list[tuple[str, Callable[[], None], SyncCall, AsyncCall]] = [
         lambda c: c.webhook_endpoints.rotate_secret("whe_1"),
     ),
     (
+        "webhook_endpoints.resume",
+        lambda: (
+            respx.post(api("/api/v1/webhook-endpoints/whe_1/resume")).mock(
+                return_value=httpx.Response(200, json=webhook_endpoint())
+            )
+            and None
+        ),
+        lambda c: c.webhook_endpoints.resume("whe_1"),
+        lambda c: c.webhook_endpoints.resume("whe_1"),
+    ),
+    (
         "keys.rotate",
         lambda: (
             respx.post(api("/api/v1/keys/rotate")).mock(

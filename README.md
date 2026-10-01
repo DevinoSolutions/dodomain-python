@@ -254,11 +254,13 @@ endpoint = client.webhook_endpoints.create(url="https://acme.example/webhooks/do
 endpoint.secret  # "whsec_…" — SHOWN ONCE. Store it now.
 
 for e in client.webhook_endpoints.list():
-    print(e.id, e.url)  # never carries a secret
+    print(e.id, e.url, e.paused_at)  # never carries a secret; paused_at is None unless auto-paused
 
 client.webhook_endpoints.update("whe_123", url="https://acme.example/v2")  # secret unchanged
 rotated = client.webhook_endpoints.rotate_secret("whe_123")
 rotated.secret  # the new one, also shown once
+
+client.webhook_endpoints.resume("whe_123")  # clears paused_at; a no-op if it is not paused
 
 client.webhook_endpoints.delete("whe_123")
 ```
@@ -274,6 +276,19 @@ Three things that will bite if assumed away:
 * **`get(endpoint_id)` is a client-side lookup over `list()`** — the API has no
   read-one route — so it costs one list request, and the `NotFoundError` it raises
   carries `status_code == 0` because no 404 came back from the server.
+
+### Auto-paused endpoints
+
+doDomain pauses an endpoint by itself once it has had **no successful delivery
+for 7 days and at least 5 dead-lettered deliveries** in that span; `paused_at`
+holds when that happened. While paused, new events are still recorded as
+deliveries but marked *skipped* and never sent.
+
+`resume(endpoint_id)` clears `paused_at` and restarts the 7-day clock. It is
+idempotent — an endpoint that is not paused comes back unchanged, so a
+reconciler may call it unconditionally. It does **not** resend the skipped
+deliveries; redrive those from the dashboard. An `update` that actually changes
+the url resumes the endpoint too.
 
 ## Rotating your secret key
 
@@ -339,6 +354,7 @@ check.guide.steps  # copy-ready manual instructions
 for app in client.apps.list():
     print(app.id, app.name, app.public_key, app.sandbox)
     print(app.tls_issuer_ca)  # the CA your certificates are issued with, or None
+    print(app.connect_headline, app.connect_font_preset)  # white-label settings, or None
 ```
 
 A secret key sees exactly its own app — listing siblings would widen a single

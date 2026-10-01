@@ -2,6 +2,50 @@
 
 Notable changes to `dodomain-sdk`. The import package is `dodomain`.
 
+## 0.5.0
+
+Parity with `@dodomain/node` 0.7.0 and the `/v1` contract changes it tracked:
+webhook-endpoint auto-pause (DoDomain PR #342) and the apps list's white-label
+connect-flow settings. Purely additive, so upgrading from 0.4.0 is a drop-in.
+
+### Added
+
+* **`webhook_endpoints.resume(endpoint_id)`** (sync and async) —
+  `POST /api/v1/webhook-endpoints/{endpointId}/resume`. doDomain now pauses an
+  endpoint by itself once it has had no successful delivery for 7 days and at
+  least 5 dead-lettered deliveries in that span; this clears the pause and
+  restarts the 7-day clock. Idempotent: an endpoint that is not paused comes back
+  unchanged with a 200. It does not resend the deliveries skipped while paused —
+  redrive those from the dashboard. Another app's endpoint id is a 404, as
+  everywhere else.
+* **`WebhookEndpoint.paused_at` / `WebhookEndpointWithSecret.paused_at`** — when
+  the endpoint was auto-paused, or `None` while it is delivering. Carried through
+  `WebhookEndpointWithSecret.endpoint`.
+* **`App.connect_headline`, `.connect_subheadline`, `.connect_success_cta_label`,
+  `.connect_success_redirect_url`, `.connect_font_preset`,
+  `.hide_connect_footer_help`** — the white-label connect-flow settings the
+  apps list has returned since 2026-09-23, as stored (`None` / `False` until
+  configured). They render on the hosted flow only while the plan includes
+  white-label.
+* **`ConnectFontPreset`** — the `Literal["system", "humanist", "serif", "rounded"]`
+  alias for `App.connect_font_preset`.
+
+### Changed
+
+* `webhook_endpoints.update` documents that a url which actually changes also
+  resumes an auto-paused endpoint.
+* The OpenAPI contract guard (`tests/test_openapi_contract.py`) now also pins
+  `WebhookEndpointSummary` and `WebhookEndpointSecretResponse`, so a new required
+  field on either fails the suite when the fixture is regenerated.
+
+### Notes
+
+* New response fields parse tolerantly, as before: a body recorded before the
+  field existed reads as `None` / `False`, while a field present with the wrong
+  type still fails loudly.
+* Delivery statuses (including the new `skipped`) are not part of the public
+  `/v1` contract and are not modelled by this SDK.
+
 ## 0.4.0
 
 Parity with `@dodomain/node` 0.5.0 and 0.6.0, and with the `/v1` contract changes
