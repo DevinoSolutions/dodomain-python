@@ -23,7 +23,8 @@ Regenerating the fixture (run from a checkout of the `dodomain` monorepo, whose
     node -e "const fs=require('fs');
       const spec=JSON.parse(fs.readFileSync('apps/docs/public/openapi.json','utf8'));
       const want=['CreateSessionResponse','PublicSession','IntegratorSession',
-                  'VerifySessionResponse','ListAppsResponse'];
+                  'VerifySessionResponse','ListAppsResponse',
+                  'WebhookEndpointSummary','WebhookEndpointSecretResponse'];
       const old=JSON.parse(fs.readFileSync(DEST,'utf8'));
       fs.writeFileSync(DEST, JSON.stringify({...old, apiVersion: spec.info.version,
         schemas: Object.fromEntries(want.map(k=>[k,spec.components.schemas[k]]))}, null, 2)+'\\n');"
@@ -44,6 +45,8 @@ from dodomain.models import (
     IntegratorSession,
     PublicSession,
     VerifyResult,
+    WebhookEndpoint,
+    WebhookEndpointWithSecret,
 )
 
 SCHEMAS: dict[str, Any] = json.loads(
@@ -101,8 +104,29 @@ REQUIRED_FIELD_MAP: dict[str, dict[str, str]] = {
         "sandbox": "sandbox",
         "logoUrl": "logo_url",
         "brandColor": "brand_color",
+        "connectHeadline": "connect_headline",
+        "connectSubheadline": "connect_subheadline",
+        "connectSuccessCtaLabel": "connect_success_cta_label",
+        "connectSuccessRedirectUrl": "connect_success_redirect_url",
+        "connectFontPreset": "connect_font_preset",
+        "hideConnectFooterHelp": "hide_connect_footer_help",
         "tlsIssuerCa": "tls_issuer_ca",
         "createdAt": "created_at",
+    },
+    "WebhookEndpointSummary": {
+        "id": "id",
+        "appId": "app_id",
+        "url": "url",
+        "createdAt": "created_at",
+        "pausedAt": "paused_at",
+    },
+    "WebhookEndpointSecretResponse": {
+        "id": "id",
+        "appId": "app_id",
+        "url": "url",
+        "createdAt": "created_at",
+        "pausedAt": "paused_at",
+        "secret": "secret",
     },
 }
 
@@ -163,6 +187,8 @@ PARSERS = {
     "IntegratorSession": IntegratorSession._from_api,
     "VerifySessionResponse": VerifyResult._from_api,
     "ListAppsResponse.apps.items": App._from_api,
+    "WebhookEndpointSummary": WebhookEndpoint._from_api,
+    "WebhookEndpointSecretResponse": WebhookEndpointWithSecret._from_api,
 }
 
 

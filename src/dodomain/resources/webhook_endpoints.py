@@ -83,6 +83,14 @@ def _spec_update(endpoint_id: str, url: str, idempotency_key: str | None) -> Req
     )
 
 
+def _spec_resume(endpoint_id: str, idempotency_key: str | None) -> RequestSpec:
+    # A verb sub-path with no body, like rotate-secret: resuming is an action, not a
+    # property you set.
+    return RequestSpec(
+        "POST", _endpoint_path(endpoint_id, "/resume"), idempotency_key=idempotency_key
+    )
+
+
 def _parse_list(payload: Any) -> tuple[WebhookEndpoint, ...]:
     items = payload.get("endpoints") if isinstance(payload, dict) else None
     if not isinstance(items, list):
@@ -162,7 +170,8 @@ class WebhookEndpoints:
         """Repoint an endpoint at a new URL.
 
         The signing secret is untouched — moving hosts must not force a receiver to
-        re-key. ``url`` is the only mutable field an endpoint has.
+        re-key. ``url`` is the only mutable field an endpoint has. A ``url`` that
+        actually changes also resumes an auto-paused endpoint (see :meth:`resume`).
         """
         return WebhookEndpoint._from_api(
             self._client.request(_spec_update(endpoint_id, url, idempotency_key))
@@ -200,6 +209,24 @@ class WebhookEndpoints:
                     idempotency_key=idempotency_key,
                 )
             )
+        )
+
+    def resume(self, endpoint_id: str, *, idempotency_key: str | None = None) -> WebhookEndpoint:
+        """Resume an endpoint doDomain paused automatically.
+
+        doDomain pauses an endpoint once it has had no successful delivery for 7
+        days **and** at least 5 dead-lettered deliveries in that span;
+        :attr:`~dodomain.models.WebhookEndpoint.paused_at` is set while it is. This
+        clears ``paused_at`` and restarts the 7-day clock.
+
+        **Idempotent:** an endpoint that is not paused comes back unchanged (a 200,
+        not an error). Events that happened while it was paused were recorded as
+        *skipped* deliveries and are **not** resent by this call — redrive them
+        from the dashboard. An :meth:`update` that changes the url resumes the
+        endpoint too.
+        """
+        return WebhookEndpoint._from_api(
+            self._client.request(_spec_resume(endpoint_id, idempotency_key))
         )
 
 
@@ -256,4 +283,12 @@ class AsyncWebhookEndpoints:
                     idempotency_key=idempotency_key,
                 )
             )
+        )
+
+    async def resume(
+        self, endpoint_id: str, *, idempotency_key: str | None = None
+    ) -> WebhookEndpoint:
+        """Resume an auto-paused endpoint. See :meth:`WebhookEndpoints.resume`."""
+        return WebhookEndpoint._from_api(
+            await self._client.request(_spec_resume(endpoint_id, idempotency_key))
         )

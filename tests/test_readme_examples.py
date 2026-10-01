@@ -201,6 +201,9 @@ def test_the_webhook_endpoints_block_runs() -> None:
     respx.delete(api("/api/v1/webhook-endpoints/whe_123")).mock(
         return_value=httpx.Response(200, json={"id": "whe_123", "deleted": True})
     )
+    respx.post(api("/api/v1/webhook-endpoints/whe_123/resume")).mock(
+        return_value=httpx.Response(200, json=webhook_endpoint(id="whe_123"))
+    )
     with make_client() as client:
         endpoint = client.webhook_endpoints.create(url="https://acme.example/webhooks/dodomain")
         assert endpoint.secret.startswith("whsec_")
@@ -210,6 +213,7 @@ def test_the_webhook_endpoints_block_runs() -> None:
         client.webhook_endpoints.update("whe_123", url="https://acme.example/v2")
         rotated = client.webhook_endpoints.rotate_secret("whe_123")
         assert rotated.secret.startswith("whsec_")
+        assert client.webhook_endpoints.resume("whe_123").paused_at is None
         assert client.webhook_endpoints.delete("whe_123").deleted is True
 
 

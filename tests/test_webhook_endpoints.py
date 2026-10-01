@@ -169,6 +169,127 @@ def test_rotate_secret_posts_to_the_verb_subpath_and_returns_the_new_secret() ->
     assert rotated.id == "whe_1"
 
 
+# ── auto-pause: paused_at + resume() ─────────────────────────────────────────
+
+
+@respx.mock
+def test_resume_posts_the_verb_subpath_with_no_body_and_returns_the_resumed_endpoint() -> None:
+    route = respx.post(api("/api/v1/webhook-endpoints/whe_1/resume")).mock(
+        return_value=httpx.Response(200, json=webhook_endpoint())
+    )
+    with make_client() as client:
+        resumed = client.webhook_endpoints.resume("whe_1")
+    assert route.call_count == 1
+    assert route.calls[0].request.method == "POST"
+    # Resuming is an action, not a property to send.
+    assert route.calls[0].request.content == b""
+    assert isinstance(resumed, WebhookEndpoint)
+    assert not isinstance(resumed, WebhookEndpointWithSecret)
+    assert resumed.id == "whe_1"
+    assert resumed.paused_at is None
+
+
+@respx.mock
+def test_resume_on_an_endpoint_that_is_not_paused_is_a_plain_200_not_an_error() -> None:
+    # Idempotent server-side: the unchanged endpoint comes back, so calling it
+    # "just in case" from a reconciler is safe.
+    route = respx.post(api("/api/v1/webhook-endpoints/whe_1/resume")).mock(
+        return_value=httpx.Response(200, json=webhook_endpoint())
+    )
+    with make_client() as client:
+        first = client.webhook_endpoints.resume("whe_1")
+        second = client.webhook_endpoints.resume("whe_1")
+    assert route.call_count == 2
+    assert first == second
+
+
+@respx.mock
+def test_resume_forwards_an_idempotency_key() -> None:
+    route = respx.post(api("/api/v1/webhook-endpoints/whe_1/resume")).mock(
+        return_value=httpx.Response(200, json=webhook_endpoint())
+    )
+    with make_client() as client:
+        client.webhook_endpoints.resume("whe_1", idempotency_key="resume-whe_1-attempt-1")
+    assert route.calls[0].request.headers["idempotency-key"] == "resume-whe_1-attempt-1"
+
+
+@respx.mock
+def test_resume_url_encodes_the_endpoint_id() -> None:
+    route = respx.post(api("/api/v1/webhook-endpoints/whe%2F1/resume")).mock(
+        return_value=httpx.Response(200, json=webhook_endpoint(id="whe/1"))
+    )
+    with make_client() as client:
+        client.webhook_endpoints.resume("whe/1")
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_resuming_another_apps_endpoint_is_a_404() -> None:
+    respx.post(api("/api/v1/webhook-endpoints/whe_someone_else/resume")).mock(
+        return_value=httpx.Response(404, json={"error": "not_found"})
+    )
+    with pytest.raises(NotFoundError) as excinfo, make_client() as client:
+        client.webhook_endpoints.resume("whe_someone_else")
+    assert excinfo.value.status_code == 404
+
+
+@respx.mock
+@pytest.mark.parametrize("bad_id", ["", "   "])
+def test_resume_refuses_an_empty_endpoint_id_before_any_request(bad_id: str) -> None:
+    route = respx.post(url__regex=r".*/resume$").mock(
+        return_value=httpx.Response(200, json=webhook_endpoint())
+    )
+    with pytest.raises(InvalidRequestError) as excinfo, make_client() as client:
+        client.webhook_endpoints.resume(bad_id)
+    assert excinfo.value.status_code == 0
+    assert route.call_count == 0
+
+
+@respx.mock
+def test_a_paused_endpoints_paused_at_survives_the_list_parse() -> None:
+    respx.get(COLLECTION).mock(
+        return_value=httpx.Response(
+            200, json={"endpoints": [webhook_endpoint(pausedAt="2026-10-08T09:00:00.000Z")]}
+        )
+    )
+    with make_client() as client:
+        endpoint = client.webhook_endpoints.list()[0]
+    assert endpoint.paused_at == datetime(2026, 10, 8, 9, 0, tzinfo=timezone.utc)
+
+
+@respx.mock
+def test_a_body_recorded_before_paused_at_existed_still_parses_as_not_paused() -> None:
+    legacy = webhook_endpoint()
+    del legacy["pausedAt"]
+    respx.get(COLLECTION).mock(return_value=httpx.Response(200, json={"endpoints": [legacy]}))
+    with make_client() as client:
+        endpoint = client.webhook_endpoints.list()[0]
+    assert endpoint.paused_at is None
+
+
+@respx.mock
+def test_a_paused_at_of_the_wrong_type_fails_loudly() -> None:
+    respx.get(COLLECTION).mock(
+        return_value=httpx.Response(200, json={"endpoints": [webhook_endpoint(pausedAt=1)]})
+    )
+    with pytest.raises(InvalidResponseError), make_client() as client:
+        client.webhook_endpoints.list()
+
+
+@respx.mock
+def test_the_secret_bearing_result_carries_paused_at_into_its_loggable_summary() -> None:
+    respx.post(api("/api/v1/webhook-endpoints/whe_1/rotate-secret")).mock(
+        return_value=httpx.Response(
+            200, json=webhook_endpoint_with_secret(pausedAt="2026-10-08T09:00:00.000Z")
+        )
+    )
+    with make_client() as client:
+        rotated = client.webhook_endpoints.rotate_secret("whe_1")
+    paused = datetime(2026, 10, 8, 9, 0, tzinfo=timezone.utc)
+    assert rotated.paused_at == paused
+    assert rotated.endpoint.paused_at == paused
+
+
 @respx.mock
 def test_an_oauth_token_is_refused_with_a_readable_secret_key_required_signal() -> None:
     # 403 rather than 401: the token is valid, it just has no authority here, and

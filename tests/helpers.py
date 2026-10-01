@@ -226,6 +226,7 @@ def webhook_endpoint(**overrides: Any) -> dict[str, Any]:
         "appId": "app_1",
         "url": "https://acme.example/webhooks/dodomain",
         "createdAt": "2026-08-01T09:00:00.000Z",
+        "pausedAt": None,
     }
     payload.update(overrides)
     return payload
@@ -268,16 +269,39 @@ LIST_APPS_RESPONSE: dict[str, Any] = {
             "sandbox": False,
             "logoUrl": None,
             "brandColor": "#0E6B4E",
+            "connectHeadline": "Connect your domain to Acme",
+            "connectSubheadline": None,
+            "connectSuccessCtaLabel": "Back to Acme",
+            "connectSuccessRedirectUrl": "https://acme.example/domains",
+            "connectFontPreset": "humanist",
+            "hideConnectFooterHelp": True,
             "tlsIssuerCa": "letsencrypt.org",
             "createdAt": "2026-07-01T00:00:00.000Z",
         }
     ]
 }
 
-#: The apps list exactly as the API shipped it before `tlsIssuerCa` existed.
+#: The white-label connect-flow fields the API added after `tlsIssuerCa`.
+WHITE_LABEL_APP_KEYS = frozenset(
+    {
+        "connectHeadline",
+        "connectSubheadline",
+        "connectSuccessCtaLabel",
+        "connectSuccessRedirectUrl",
+        "connectFontPreset",
+        "hideConnectFooterHelp",
+    }
+)
+
+#: The apps list exactly as the API shipped it before `tlsIssuerCa` existed (and
+#: so before the white-label fields, which came later still).
 LEGACY_LIST_APPS_RESPONSE: dict[str, Any] = {
     "apps": [
-        {key: value for key, value in LIST_APPS_RESPONSE["apps"][0].items() if key != "tlsIssuerCa"}
+        {
+            key: value
+            for key, value in LIST_APPS_RESPONSE["apps"][0].items()
+            if key != "tlsIssuerCa" and key not in WHITE_LABEL_APP_KEYS
+        }
     ]
 }
 
