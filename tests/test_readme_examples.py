@@ -262,6 +262,7 @@ def test_the_domain_check_and_apps_blocks_run() -> None:
         assert (check.zone, check.provider, check.tier) == ("customer.com", "cloudflare", 2)
         assert check.method == "domain-connect"
         assert check.confidence == "medium"
+        assert check.one_click_available is True
         assert check.guide.steps
         for app in client.apps.list():
             assert (app.id, app.name, app.public_key, app.sandbox) == (

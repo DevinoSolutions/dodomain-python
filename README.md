@@ -345,6 +345,7 @@ check.provider  # "cloudflare"
 check.tier  # 1 | 2 | 3
 check.method  # "oauth" | "domain-connect" | "guided"
 check.confidence  # "high" | "medium" | "low"
+check.one_click_available  # False on tier 2 when the provider serves none of our templates (e.g. GoDaddy)
 check.guide.steps  # copy-ready manual instructions
 ```
 

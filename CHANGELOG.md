@@ -2,6 +2,18 @@
 
 Notable changes to `dodomain-sdk`. The import package is `dodomain`.
 
+## Unreleased
+
+### Added
+
+* **`CheckDomainResult.one_click_available`** (wire key `oneClickAvailable`,
+  DoDomain PR #402) — `True` when the domain's DNS provider actually offers
+  DoDomain's one-click: tier 1 (Cloudflare OAuth), or tier 2 where the provider
+  serves at least one of DoDomain's Domain Connect templates. `tier == 2` alone
+  only means the provider speaks Domain Connect (GoDaddy does and serves none,
+  so `False`). `None` against a server that predates the field, so upgrading is
+  a drop-in.
+
 ## 0.5.0
 
 Parity with `@dodomain/node` 0.7.0 and the `/v1` contract changes it tracked:

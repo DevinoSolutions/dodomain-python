@@ -709,7 +709,19 @@ class DetectResult:
 
 @dataclass(frozen=True, slots=True)
 class CheckDomainResult:
-    """Stateless pre-flight: what would happen if you connected this domain."""
+    """Stateless pre-flight: what would happen if you connected this domain.
+
+    Attributes:
+        one_click_available: ``True`` when the domain's DNS provider offers
+            DoDomain's one-click for at least one typical setup: tier 1
+            (Cloudflare OAuth), or tier 2 where the provider serves at least one
+            of DoDomain's Domain Connect templates. ``tier == 2`` alone only means
+            the provider speaks Domain Connect (GoDaddy does, and serves none of
+            the templates, so it answers ``False``). Fails closed: a probe that
+            could not finish is ``False``. Provider-level only: a session still
+            needs a Pro or Scale plan for one-click. ``None`` when the server
+            predates the field (wire key ``oneClickAvailable``).
+    """
 
     domain: str
     zone: str
@@ -721,6 +733,7 @@ class CheckDomainResult:
     name_servers: tuple[str, ...]
     domain_connect: DomainConnectDiscovery
     guide: ProviderGuide
+    one_click_available: bool | None = None
     raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
 
     @classmethod
@@ -737,6 +750,7 @@ class CheckDomainResult:
             name_servers=_str_list(data, "nameServers"),
             domain_connect=DomainConnectDiscovery._from_api(data.get("domainConnect")),
             guide=ProviderGuide._from_api(data.get("guide")),
+            one_click_available=_opt_bool(data, "oneClickAvailable"),
             raw=data,
         )
 
