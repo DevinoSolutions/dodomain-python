@@ -2,7 +2,9 @@
 
 Notable changes to `dodomain-sdk`. The import package is `dodomain`.
 
-## Unreleased
+## 0.6.0
+
+Parity with `@dodomain/node` 0.8.0.
 
 ### Added
 
