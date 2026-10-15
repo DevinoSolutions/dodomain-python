@@ -6,7 +6,7 @@ import httpx
 import pytest
 import respx
 
-from dodomain import InvalidRequestError
+from dodomain import InvalidRequestError, InvalidResponseError
 from tests.helpers import CHECK_DOMAIN_RESPONSE, TEST_KEY, api, make_client
 
 
@@ -39,6 +39,37 @@ def test_check_parses_every_field_of_the_pre_flight_result() -> None:
     assert result.domain_connect.provider_name == "Cloudflare"
     assert result.guide.host_format == "{host}"
     assert result.guide.dashboard_url == "https://dash.cloudflare.com"
+    assert result.one_click_available is True
+
+
+@respx.mock
+def test_check_reports_one_click_unavailable_on_a_tier_2_provider_serving_no_templates() -> None:
+    # GoDaddy speaks Domain Connect but serves none of DoDomain's templates.
+    respx.post(api("/api/v1/domains/check")).mock(
+        return_value=httpx.Response(200, json={**CHECK_DOMAIN_RESPONSE, "oneClickAvailable": False})
+    )
+    with make_client() as client:
+        result = client.domains.check(domain="app.customer.com")
+    assert result.tier == 2
+    assert result.one_click_available is False
+
+
+@respx.mock
+def test_check_leaves_one_click_available_none_when_an_older_server_omits_it() -> None:
+    legacy = {k: v for k, v in CHECK_DOMAIN_RESPONSE.items() if k != "oneClickAvailable"}
+    respx.post(api("/api/v1/domains/check")).mock(return_value=httpx.Response(200, json=legacy))
+    with make_client() as client:
+        result = client.domains.check(domain="app.customer.com")
+    assert result.one_click_available is None
+
+
+@respx.mock
+def test_check_rejects_a_non_boolean_one_click_available() -> None:
+    respx.post(api("/api/v1/domains/check")).mock(
+        return_value=httpx.Response(200, json={**CHECK_DOMAIN_RESPONSE, "oneClickAvailable": "yes"})
+    )
+    with pytest.raises(InvalidResponseError), make_client() as client:
+        client.domains.check(domain="app.customer.com")
 
 
 @respx.mock

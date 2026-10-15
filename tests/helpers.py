@@ -153,6 +153,7 @@ CHECK_DOMAIN_RESPONSE: dict[str, Any] = {
         "providerName": "Cloudflare",
     },
     "guide": PROVIDER_GUIDE,
+    "oneClickAvailable": True,
 }
 
 VERIFY_RESPONSE: dict[str, Any] = {
