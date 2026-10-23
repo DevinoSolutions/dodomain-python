@@ -1,0 +1,29 @@
+# Dependabot for the DoDomain Python SDK (org standard: fleet dep audit 2026-10-23).
+#
+# pip reads pyproject.toml (runtime httpx range + the pinned `dev` extras).
+# Security updates are grouped into one pull request and never limited. This
+# file does not touch publish.yml or any release path.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    cooldown:
+      default-days: 2
+    groups:
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
