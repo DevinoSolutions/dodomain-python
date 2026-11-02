@@ -43,12 +43,12 @@ Issues = "https://github.com/DevinoSolutions/dodomain-python/issues"
 
 [project.optional-dependencies]
 dev = [
-  "pytest==9.1.1",
-  "pytest-asyncio==1.4.0",
+  "pytest==9.2.0",
+  "pytest-asyncio==1.4.1",
   "pytest-cov==7.1.0",
   "respx==0.23.1",
-  "ruff==0.16.1",
-  "ty==0.0.66",
+  "ruff==0.17.3",
+  "ty==0.0.95",
 ]
 
 [tool.hatch.version]
