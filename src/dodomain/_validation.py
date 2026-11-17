@@ -17,7 +17,11 @@ from urllib.parse import urlsplit
 from .errors import InvalidRequestError
 from .models import OVERLAP_HOURS_VALUES, RECORD_TYPES, DnsRecord
 
-__all__ = ["validate_create_session", "validate_overlap_hours"]
+__all__ = [
+    "validate_create_keyless_session",
+    "validate_create_session",
+    "validate_overlap_hours",
+]
 
 # Two-or-more DNS labels, <=63 chars each, no leading/trailing hyphen. Case is
 # accepted as sent (DNS is case-insensitive) but a trailing root dot is not: the
@@ -164,6 +168,48 @@ def validate_create_session(
         body["recipe"] = recipe
     if return_url is not None:
         body["returnUrl"] = validate_return_url(return_url)
+    return body
+
+
+#: Bounds of the optional keyless ``appName`` (``zCreateKeylessSessionInput``).
+KEYLESS_APP_NAME_MAX = 60
+
+
+def validate_create_keyless_session(
+    *,
+    domain: str,
+    records: Sequence[DnsRecord] | Iterable[DnsRecord],
+    app_id: str | None,
+    app_name: str | None,
+    recipe: str | None,
+    return_url: str | None,
+) -> dict[str, object]:
+    """Build and validate the ``POST /api/v1/keyless/sessions`` body.
+
+    The create body minus ``appId`` (a keyless client's ``dd_ks_`` key is its
+    app), plus the optional ``appName``, trimmed as the API stores it.
+    Transcribed from ``zCreateKeylessSessionInput`` in
+    ``packages/core/src/schemas.ts``.
+    """
+    if app_id is not None:
+        raise _reject("a keyless client has no app_id to pass: its dd_ks_ key is its app.")
+    body = validate_create_session(
+        domain=domain,
+        records=records,
+        app_id=None,
+        recipe=recipe,
+        return_url=return_url,
+        is_oauth=False,
+    )
+    if app_name is not None:
+        if not isinstance(app_name, str):
+            raise _reject("app_name must be a string.")
+        name = app_name.strip()
+        if not name:
+            raise _reject("appName cannot be empty.")
+        if len(name) > KEYLESS_APP_NAME_MAX:
+            raise _reject(f"appName is too long ({KEYLESS_APP_NAME_MAX} characters max).")
+        body["appName"] = name
     return body
 
 

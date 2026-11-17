@@ -13,6 +13,7 @@ import pathlib
 import re
 
 import httpx
+import pytest
 import respx
 
 from dodomain import AsyncDoDomain, DnsRecord, DoDomain, verify_webhook
@@ -342,3 +343,28 @@ def test_the_error_handling_block_type_names_all_resolve() -> None:
 
 def test_the_async_client_named_in_the_readme_is_importable() -> None:
     assert AsyncDoDomain.__name__ == "AsyncDoDomain"
+
+
+def _readme_block_after(heading: str) -> str:
+    text = README.read_text(encoding="utf-8")
+    section = text[text.index(heading) :]
+    match = re.search(r"```python\n(.*?)```", section, flags=re.DOTALL)
+    assert match, f"no python block under {heading!r}"
+    return match.group(1)
+
+
+def test_the_keyless_block_runs_verbatim(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The README's keyless block, executed as written against a MOCK keyless API
+    # (a 428 challenge, then the session once the proof holds), with the reader's
+    # own `save_secret` stood in by a recorder.
+    from tests.test_keyless import ScriptedKeylessApi, mock_keyless_routes
+
+    monkeypatch.delenv("DODOMAIN_KEYLESS_KEY", raising=False)
+    saved: dict[str, str] = {}
+    scripted = ScriptedKeylessApi()
+    with respx.mock(assert_all_called=False) as router:
+        mock_keyless_routes(router, scripted)
+        namespace: dict[str, object] = {"save_secret": saved.__setitem__}
+        exec(_readme_block_after("### Try it with no account"), namespace)
+    assert saved == {"DODOMAIN_KEYLESS_KEY": "dd_ks_scripted_key"}
+    assert json.loads(scripted.seen[1].content)["domain"] == "YOUR-DOMAIN.example"

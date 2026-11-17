@@ -701,6 +701,246 @@
         "secret"
       ],
       "type": "object"
+    },
+    "KeylessSessionResponse": {
+      "properties": {
+        "connectUrl": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "expiresAt": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "keyless": {
+          "properties": {
+            "allowance": {
+              "properties": {
+                "limit": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "open": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "remaining": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "used": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "limit",
+                "used",
+                "open",
+                "remaining"
+              ],
+              "type": "object"
+            },
+            "appId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "claimUrl": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "docs": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "key": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "unlock": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "appId",
+            "allowance",
+            "claimUrl",
+            "unlock",
+            "docs"
+          ],
+          "type": "object"
+        },
+        "mode": {
+          "const": "live",
+          "type": "string"
+        },
+        "records": {
+          "items": {
+            "properties": {
+              "fqdn": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "host": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "A",
+                  "AAAA",
+                  "CNAME",
+                  "TXT",
+                  "MX",
+                  "SRV",
+                  "CAA",
+                  "NS"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "host",
+              "fqdn"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "token": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "properties": {
+              "code": {
+                "enum": [
+                  "duplicate_host_label"
+                ],
+                "type": "string"
+              },
+              "fqdn": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "host": {
+                "type": "string"
+              },
+              "message": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "host",
+              "fqdn"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "token",
+        "expiresAt",
+        "connectUrl",
+        "records",
+        "mode",
+        "keyless"
+      ],
+      "type": "object"
+    },
+    "KeylessStatusResponse": {
+      "properties": {
+        "allowance": {
+          "properties": {
+            "limit": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "open": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "remaining": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "used": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "limit",
+            "used",
+            "open",
+            "remaining"
+          ],
+          "type": "object"
+        },
+        "appId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "claimUrl": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "type": "string"
+        },
+        "docs": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "lastUsedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "unlock": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "appId",
+        "allowance",
+        "claimUrl",
+        "unlock",
+        "docs",
+        "createdAt",
+        "lastUsedAt"
+      ],
+      "type": "object"
     }
   }
 }

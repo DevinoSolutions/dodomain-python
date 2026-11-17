@@ -145,7 +145,10 @@ def test_an_rfc_9457_problem_json_body_is_parsed_for_forward_compatibility() -> 
     with pytest.raises(NotFoundError) as excinfo, _client() as client:
         client.request(RequestSpec("GET", "/api/v1/apps"))
     assert excinfo.value.code == "not_found"
-    assert excinfo.value.message == "no such connection"
+    assert excinfo.value.detail == "no such connection"
+    # No `error` member, so the machine half is the status (as @dodomain/node 0.9.2).
+    assert excinfo.value.message == "HTTP 404: no such connection"
+    assert excinfo.value.error is None
 
 
 @respx.mock

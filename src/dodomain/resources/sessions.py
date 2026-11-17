@@ -19,8 +19,9 @@ from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from dodomain._transport import RequestSpec
-from dodomain._validation import validate_create_session
+from dodomain._validation import validate_create_keyless_session, validate_create_session
 from dodomain.errors import InvalidRequestError
+from dodomain.keyless import AbortEvent
 from dodomain.models import (
     ConnectSessionSummary,
     DetectResult,
@@ -29,6 +30,7 @@ from dodomain.models import (
     PublicSession,
     VerifyResult,
 )
+from dodomain.resources.keyless import async_create_keyless_session, create_keyless_session
 
 if TYPE_CHECKING:  # pragma: no cover
     from dodomain._client import AsyncDoDomain, DoDomain
@@ -72,16 +74,42 @@ def _session_id_path(session_id: str) -> str:
     return f"/api/v1/sessions/{quote(session_id, safe='')}"
 
 
+def _keyless_body(
+    *,
+    domain: str,
+    records: Sequence[DnsRecord] | Iterable[DnsRecord],
+    app_id: str | None,
+    app_name: str | None,
+    recipe: str | None,
+    return_url: str | None,
+) -> dict[str, object]:
+    return validate_create_keyless_session(
+        domain=domain,
+        records=records,
+        app_id=app_id,
+        app_name=app_name,
+        recipe=recipe,
+        return_url=return_url,
+    )
+
+
 def _spec_create(
     *,
     domain: str,
     records: Sequence[DnsRecord] | Iterable[DnsRecord],
     app_id: str | None,
+    app_name: str | None,
     recipe: str | None,
     return_url: str | None,
     is_oauth: bool,
     idempotency_key: str | None,
 ) -> RequestSpec:
+    if app_name is not None:
+        raise InvalidRequestError(
+            "invalid_request",
+            status_code=0,
+            message="app_name names a keyless app; a secret-key client's app already has its name.",
+        )
     body = validate_create_session(
         domain=domain,
         records=records,
@@ -108,8 +136,19 @@ class Sessions:
         recipe: str | None = None,
         return_url: str | None = None,
         idempotency_key: str | None = None,
+        app_name: str | None = None,
+        abort: AbortEvent | None = None,
     ) -> ConnectSessionSummary:
         """Mint a connect session and get the URL to send the customer to.
+
+        On a keyless client (``DoDomain(keyless=True)``) this calls
+        ``POST /api/v1/keyless/sessions`` instead: the first call solves the proof
+        of work the API asks for (about 1 to 3 seconds at the usual 20 bits) and
+        retries with it, then the client keeps the returned ``dd_ks_`` key
+        (:attr:`~dodomain.DoDomain.keyless_key`) and later calls need no proof.
+        The result then carries ``keyless``: the allowance and the ``claim_url``
+        that moves the app into an account. A keyless refusal raises
+        :class:`~dodomain.errors.DoDomainKeylessError` (branch on ``code``).
 
         Args:
             domain: The hostname being connected, e.g. ``app.customer.com``. No
@@ -126,6 +165,14 @@ class Sessions:
             idempotency_key: Forwarded as ``Idempotency-Key``. **The API does not
                 currently honour it**, and this call is *not* idempotent — every
                 call mints a new session, token and quota unit.
+            app_name: Keyless only: the name DoDomain's hosted connect page shows
+                for the test app (the first call only; trimmed, 1 to 60
+                characters). A secret-key client refuses it.
+            abort: Keyless only: a :class:`threading.Event` (anything with
+                ``is_set()``). Setting it stops the proof-of-work search, and the
+                wait for another thread's keyless start, with
+                ``KEYLESS_PROOF_ABORTED``. A request already in flight finishes,
+                bounded by the client's ``timeout``.
 
         Returns:
             The new :class:`~dodomain.models.ConnectSessionSummary`.
@@ -134,11 +181,26 @@ class Sessions:
             InvalidRequestError: Locally, before any HTTP request, when the input
                 cannot satisfy the API's schema.
             QuotaExceededError: The free plan's monthly connection cap is spent.
+            DoDomainKeylessError: Keyless mode: a ``KEYLESS_*`` refusal, or a
+                proof that timed out, was aborted or cannot be solved.
         """
+        if self._client.is_keyless:
+            body = _keyless_body(
+                domain=domain,
+                records=records,
+                app_id=app_id,
+                app_name=app_name,
+                recipe=recipe,
+                return_url=return_url,
+            )
+            return create_keyless_session(
+                self._client, body, abort=abort, idempotency_key=idempotency_key
+            )
         spec = _spec_create(
             domain=domain,
             records=records,
             app_id=app_id,
+            app_name=app_name,
             recipe=recipe,
             return_url=return_url,
             is_oauth=self._client.is_oauth,
@@ -230,12 +292,32 @@ class AsyncSessions:
         recipe: str | None = None,
         return_url: str | None = None,
         idempotency_key: str | None = None,
+        app_name: str | None = None,
+        abort: AbortEvent | None = None,
     ) -> ConnectSessionSummary:
-        """Mint a connect session. See :meth:`Sessions.create`."""
+        """Mint a connect session. See :meth:`Sessions.create`.
+
+        Keyless mode: ``abort`` takes an :class:`asyncio.Event` (or anything with
+        ``is_set()``), and cancelling the task stops the request and the
+        proof-of-work search alike.
+        """
+        if self._client.is_keyless:
+            body = _keyless_body(
+                domain=domain,
+                records=records,
+                app_id=app_id,
+                app_name=app_name,
+                recipe=recipe,
+                return_url=return_url,
+            )
+            return await async_create_keyless_session(
+                self._client, body, abort=abort, idempotency_key=idempotency_key
+            )
         spec = _spec_create(
             domain=domain,
             records=records,
             app_id=app_id,
+            app_name=app_name,
             recipe=recipe,
             return_url=return_url,
             is_oauth=self._client.is_oauth,

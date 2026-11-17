@@ -2,6 +2,64 @@
 
 Notable changes to `dodomain-sdk`. The import package is `dodomain`.
 
+## 0.7.0
+
+Parity with `@dodomain/node` 0.9.2: keyless mode (node 0.9.0/0.9.1, DoDomain
+T-18036) and API refusals that carry their readable text (node 0.9.2, DoDomain
+PR #819, T-18329).
+
+### Added
+
+* **Keyless mode**: `DoDomain(keyless=True)` / `AsyncDoDomain(keyless=True)`,
+  no account and no key. `sessions.create` calls
+  `POST /api/v1/keyless/sessions`, answers the API's `428` with a solved
+  SHA-256 proof of work (`DoDomain-Keyless-Proof`; never above 24 bits), solves
+  a fresh challenge at most once more when the proved retry is refused as
+  `proof_too_easy` / `proof_expired`, and keeps the returned `dd_ks_` key
+  (`client.keyless_key`) so later calls need no proof. Concurrent creates on a
+  fresh client start ONE keyless app. `keyless_key=` reuses an app across
+  processes, `proof_timeout=` (seconds, above 0 and at most 300, default 120)
+  bounds one solve, `app_name=` names the test app, and `abort=` (a
+  `threading.Event`, or an `asyncio.Event` on the async client) stops the solve
+  and the wait for another call's start. An explicit opt-in: a missing
+  `secret_key` still raises.
+* **`client.keyless.status()`**: `GET /api/v1/keyless`, the keyless app's
+  allowance and claim link (`KeylessStatus`).
+* **`ConnectSessionSummary.mode` / `.keyless`** (`KeylessSessionInfo`:
+  `app_id`, `allowance`, `claim_url`, `unlock`, `docs`, `key`). The key and the
+  claim link are kept out of `repr()`.
+* **`DoDomainKeylessError`** (a `DoDomainAPIError`): every `KEYLESS_*` refusal
+  from the API (`KEYLESS_PROOF_REQUIRED`, `KEYLESS_LIMIT_REACHED`,
+  `KEYLESS_START_RATE_LIMITED`, `KEYLESS_CAPACITY_REACHED`,
+  `KEYLESS_KEY_CLAIMED`, `KEYLESS_KEY_NOT_ACCEPTED`, `KEYLESS_DISABLED`,
+  `KEYLESS_PLACEHOLDER_DOMAIN`) and the five the SDK raises itself with
+  `status_code == 0` (`KEYLESS_PROOF_TIMEOUT`, `KEYLESS_PROOF_ABORTED`,
+  `KEYLESS_PROOF_UNSUPPORTED`, `KEYLESS_KEY_MISSING`, `KEYLESS_MODE`). `code`
+  is the `KEYLESS_*` code, `details` the refusal's details, and `retry_at` /
+  `retry_after` read `details.retryAt` and `Retry-After` (else
+  `details.retryAfterSeconds`). A keyless client refuses every secret-key call
+  locally with `KEYLESS_MODE`.
+* **`solve_keyless_proof` / `async_solve_keyless_proof`** and
+  `KEYLESS_MAX_DIFFICULTY_BITS`, for callers that drive the REST API directly.
+* **`DoDomainAPIError.error`** (the machine error, `body.error`) and
+  **`.detail`** (the API's human text alone).
+
+### Changed
+
+* **`DoDomainAPIError.message`** is now one readable line: the machine error
+  followed by the API's own text (RFC 9457 `detail`, else `message`), e.g.
+  `'invalid_request: "customer.com" is a placeholder or reserved name, ...'`;
+  the machine error alone when there is no text, or `HTTP <status>` when the
+  body named no error. It used to be the raw `message` field and often `None`;
+  that text is `.detail` now. `str(exc)` keeps its shape.
+* **Every `dd_ks_` key in an error is redacted to `dd_ks_…`**, at any depth:
+  `message`, `detail`, `details`, `body`, `code`, `error`, and
+  `InvalidResponseError.payload`. Successful responses are left whole.
+* A problem+json refusal that carries both `error` and a denial `code` now
+  raises the exception class of its `error` (a 403 with
+  `code: "SCOPE_MISSING"` is a `PermissionError_`, no longer the bare
+  `DoDomainAPIError`); `.code` is unchanged.
+
 ## 0.6.0
 
 Parity with `@dodomain/node` 0.8.0.

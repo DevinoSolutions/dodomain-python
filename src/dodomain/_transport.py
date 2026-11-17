@@ -27,8 +27,10 @@ from typing import Any
 import httpx
 
 from .errors import (
+    API_KEYLESS_CODES,
     ERROR_CODE_TO_EXCEPTION,
     DoDomainAPIError,
+    DoDomainKeylessError,
     InvalidResponseError,
     RateLimitError,
 )
@@ -69,6 +71,12 @@ class RequestSpec:
     #: token in the path — they must be called with no ``Authorization`` header.
     auth: bool = True
     idempotency_key: str | None = None
+    #: The bearer to send instead of the client's secret key: a keyless
+    #: client's ``dd_ks_`` key, on the two keyless routes only.
+    credential: str | None = None
+    #: Extra request headers, e.g. ``DoDomain-Keyless-Proof``. A tuple of pairs
+    #: so the spec stays hashable.
+    headers: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,7 +130,7 @@ def _float_header(headers: httpx.Headers, name: str) -> float | None:
 def build_headers(
     spec: RequestSpec,
     *,
-    secret_key: str,
+    secret_key: str | None,
     user_agent: str,
 ) -> dict[str, str]:
     """Assemble the exact headers for one request.
@@ -132,12 +140,15 @@ def build_headers(
     the caller injected their own ``http_client``.
     """
     headers: dict[str, str] = {"accept": "application/json", "user-agent": user_agent}
-    if spec.auth:
-        headers["authorization"] = f"Bearer {secret_key}"
+    bearer = spec.credential if spec.credential is not None else secret_key
+    if spec.auth and bearer is not None:
+        headers["authorization"] = f"Bearer {bearer}"
     if spec.json_body is not None:
         headers["content-type"] = "application/json"
     if spec.idempotency_key is not None:
         headers["idempotency-key"] = spec.idempotency_key
+    for name, value in spec.headers:
+        headers[name] = value
     return headers
 
 
@@ -172,6 +183,16 @@ def parse_error_body(body: dict[str, Any]) -> tuple[str, str | None, Any]:
         message if isinstance(message, str) else None,
         body.get("details"),
     )
+
+
+def _human_text(body: dict[str, Any]) -> str | None:
+    """The human text of a refusal: RFC 9457 ``detail``, else the house
+    ``message``, when either carries readable text (as ``humanText`` in
+    ``@dodomain/node`` 0.9.2)."""
+    for text in (body.get("detail"), body.get("message")):
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+    return None
 
 
 def _request_id(headers: httpx.Headers) -> str | None:
@@ -217,22 +238,35 @@ def map_error(response: httpx.Response, spec: RequestSpec) -> DoDomainAPIError:
 
     # `_looks_like_problem_json` is the explicit signal; `parse_error_body`
     # shape-detects when the header is absent, so both routes agree.
-    code, message, details = parse_error_body(body)
+    code, _, details = parse_error_body(body)
     if _looks_like_problem_json(response) and "error" in body and isinstance(body.get("code"), str):
         code = body["code"]
+    machine = body.get("error")
+    machine = machine if isinstance(machine, str) else None
+    denial = body.get("code")
 
-    exc_class = ERROR_CODE_TO_EXCEPTION.get(code, DoDomainAPIError)
+    exc_class: type[DoDomainAPIError]
+    if isinstance(denial, str) and denial in API_KEYLESS_CODES:
+        # Typed whatever the content type: a keyless refusal is branched on by
+        # its KEYLESS_* code, never by the HTTP status it happens to share.
+        exc_class, code = DoDomainKeylessError, denial
+    else:
+        # The class follows the machine error when there is one, so a 403
+        # problem+json answer carrying `code: "SCOPE_MISSING"` is still a
+        # PermissionError_.
+        exc_class = ERROR_CODE_TO_EXCEPTION.get(machine or code, DoDomainAPIError)
     error = exc_class(
         code,
         status_code=response.status_code,
-        message=message,
+        message=_human_text(body),
         details=details,
         request_id=request_id,
         method=spec.method,
         path=spec.path,
         body=body,
+        error=machine,
     )
-    if isinstance(error, RateLimitError):
+    if isinstance(error, (RateLimitError, DoDomainKeylessError)):
         error._retry_after_header = _float_header(response.headers, "Retry-After")
     return error
 

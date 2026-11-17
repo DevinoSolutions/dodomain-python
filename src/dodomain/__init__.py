@@ -20,7 +20,7 @@ webhook verifier, the models those return, and the exception hierarchy.
 
 from __future__ import annotations
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 from ._client import AsyncDoDomain, DoDomain
 from ._transport import DEFAULT_BASE_URL, RateLimitSnapshot
@@ -31,15 +31,23 @@ from .errors import (
     DoDomainConfigError,
     DoDomainConnectionError,
     DoDomainError,
+    DoDomainKeylessError,
     ExpiredError,
     InternalServerError,
     InvalidRequestError,
     InvalidResponseError,
+    KeylessErrorCode,
     NotConfiguredError,
     NotFoundError,
     PermissionError_,
     QuotaExceededError,
     RateLimitError,
+)
+from .keyless import (
+    KEYLESS_MAX_DIFFICULTY_BITS,
+    AbortEvent,
+    async_solve_keyless_proof,
+    solve_keyless_proof,
 )
 from .models import (
     App,
@@ -59,6 +67,9 @@ from .models import (
     DomainConnectDiscovery,
     DomainConnectRef,
     IntegratorSession,
+    KeylessAllowance,
+    KeylessSessionInfo,
+    KeylessStatus,
     Method,
     ProviderGuide,
     PublicSession,
@@ -82,7 +93,9 @@ from .webhooks import DEFAULT_TOLERANCE_MS, SIGNATURE_HEADER, verify_webhook
 __all__ = [
     "DEFAULT_BASE_URL",
     "DEFAULT_TOLERANCE_MS",
+    "KEYLESS_MAX_DIFFICULTY_BITS",
     "SIGNATURE_HEADER",
+    "AbortEvent",
     "App",
     "AsyncDoDomain",
     "AuthenticationError",
@@ -105,6 +118,7 @@ __all__ = [
     "DoDomainConfigError",
     "DoDomainConnectionError",
     "DoDomainError",
+    "DoDomainKeylessError",
     "DomainConnectDiscovery",
     "DomainConnectRef",
     "ExpiredError",
@@ -112,6 +126,10 @@ __all__ = [
     "InternalServerError",
     "InvalidRequestError",
     "InvalidResponseError",
+    "KeylessAllowance",
+    "KeylessErrorCode",
+    "KeylessSessionInfo",
+    "KeylessStatus",
     "Method",
     "NotConfiguredError",
     "NotFoundError",
@@ -136,5 +154,7 @@ __all__ = [
     "WebhookEndpoint",
     "WebhookEndpointWithSecret",
     "__version__",
+    "async_solve_keyless_proof",
+    "solve_keyless_proof",
     "verify_webhook",
 ]
