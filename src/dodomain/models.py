@@ -42,6 +42,9 @@ __all__ = [
     "DomainConnectDiscovery",
     "DomainConnectRef",
     "IntegratorSession",
+    "KeylessAllowance",
+    "KeylessSessionInfo",
+    "KeylessStatus",
     "Method",
     "ProviderGuide",
     "PublicSession",
@@ -426,6 +429,10 @@ class ConnectSessionSummary:
             obvious.
         warnings: Advisories about the request that was nonetheless accepted.
             Empty for a clean create.
+        mode: ``"live"`` on a keyless session (it checks real DNS); ``None`` on
+            a secret-key client's.
+        keyless: The keyless app's key (first start only), allowance and claim
+            link, on a session a keyless client created; ``None`` otherwise.
     """
 
     id: str
@@ -440,6 +447,10 @@ class ConnectSessionSummary:
     warnings: tuple[SessionWarning, ...] = ()
     base_url: str = "https://app.dodomain.io"
     raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
+    #: Keyless only (0.7.0); appended last so positional construction of the
+    #: fields above keeps working.
+    mode: str | None = None
+    keyless: KeylessSessionInfo | None = None
 
     @property
     def cloudflare_start_url(self) -> str:
@@ -470,6 +481,121 @@ class ConnectSessionSummary:
             records=tuple(ComposedRecord._from_api(item) for item in _opt_list(data, "records")),
             warnings=tuple(SessionWarning._from_api(item) for item in _opt_list(data, "warnings")),
             base_url=base_url,
+            raw=data,
+        )
+
+    @classmethod
+    def _from_keyless_api(cls, payload: Any, *, base_url: str) -> ConnectSessionSummary:
+        """The ``POST /api/v1/keyless/sessions`` response: the create shape plus
+        ``mode`` and the ``keyless`` block, both required."""
+        data = _obj(payload, "keyless session")
+        session = cls._from_api(data, base_url=base_url)
+        return cls(
+            id=session.id,
+            token=session.token,
+            expires_at=session.expires_at,
+            connect_url=session.connect_url,
+            records=session.records,
+            warnings=session.warnings,
+            base_url=base_url,
+            raw=data,
+            mode=_literal(data, "mode", ("live",)),
+            keyless=KeylessSessionInfo._from_api(data.get("keyless")),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class KeylessAllowance:
+    """Where a keyless app stands against its lifetime allowance.
+
+    Attributes:
+        limit: Verified connections the keyless app may make.
+        used: Verified connections it has made.
+        open: Unfinished sessions that may still become connections.
+        remaining: What is left.
+    """
+
+    limit: int
+    used: int
+    open: int
+    remaining: int
+
+    @classmethod
+    def _from_api(cls, payload: Any) -> KeylessAllowance:
+        data = _obj(payload, "keyless allowance")
+        return cls(
+            limit=_req_int(data, "limit"),
+            used=_req_int(data, "used"),
+            open=_req_int(data, "open"),
+            remaining=_req_int(data, "remaining"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class KeylessSessionInfo:
+    """The ``keyless`` block of a session a keyless client created.
+
+    ``key`` and ``claim_url`` are credentials (the claim link carries the key
+    after its ``#``), so neither appears in ``repr()``. Store the key like a
+    password; hand the claim link only to the person who will claim the app.
+
+    Attributes:
+        app_id: The keyless app's id.
+        allowance: Its :class:`KeylessAllowance`.
+        claim_url: Open it signed in to adopt the app into an account.
+        unlock: One sentence on what claiming unlocks.
+        docs: The keyless-start docs.
+        key: The ``dd_ks_`` key, ONLY on the response that started the app.
+    """
+
+    app_id: str
+    allowance: KeylessAllowance
+    claim_url: str = field(repr=False)
+    unlock: str
+    docs: str
+    key: str | None = field(default=None, repr=False)
+
+    @classmethod
+    def _from_api(cls, payload: Any) -> KeylessSessionInfo:
+        data = _obj(payload, "keyless")
+        return cls(
+            app_id=_req_str(data, "appId"),
+            allowance=KeylessAllowance._from_api(data.get("allowance")),
+            claim_url=_req_str(data, "claimUrl"),
+            unlock=_req_str(data, "unlock"),
+            docs=_req_str(data, "docs"),
+            key=_opt_str(data, "key"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class KeylessStatus:
+    """``GET /api/v1/keyless``: the keyless app's allowance and claim state.
+
+    ``claim_url`` carries the key after its ``#``, so it is kept out of
+    ``repr()``.
+    """
+
+    app_id: str
+    allowance: KeylessAllowance
+    claim_url: str = field(repr=False)
+    unlock: str
+    docs: str
+    created_at: datetime
+    last_used_at: datetime | None
+    raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
+
+    @classmethod
+    def _from_api(cls, payload: Any) -> KeylessStatus:
+        data = _obj(payload, "keyless status")
+        return cls(
+            app_id=_req_str(data, "appId"),
+            allowance=KeylessAllowance._from_api(data.get("allowance")),
+            claim_url=_req_str(data, "claimUrl"),
+            unlock=_req_str(data, "unlock"),
+            docs=_req_str(data, "docs"),
+            created_at=_req_datetime(data, "createdAt"),
+            last_used_at=_opt_datetime(data, "lastUsedAt"),
             raw=data,
         )
 

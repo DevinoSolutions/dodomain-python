@@ -353,6 +353,7 @@ def test_both_clients_expose_the_same_resources_with_the_same_method_names() -> 
         "apps",
         "connections",
         "domains",
+        "keyless",
         "keys",
         "sessions",
         "webhook_endpoints",

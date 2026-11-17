@@ -24,7 +24,8 @@ Regenerating the fixture (run from a checkout of the `dodomain` monorepo, whose
       const spec=JSON.parse(fs.readFileSync('apps/docs/public/openapi.json','utf8'));
       const want=['CreateSessionResponse','PublicSession','IntegratorSession',
                   'VerifySessionResponse','ListAppsResponse',
-                  'WebhookEndpointSummary','WebhookEndpointSecretResponse'];
+                  'WebhookEndpointSummary','WebhookEndpointSecretResponse',
+                  'KeylessSessionResponse','KeylessStatusResponse'];
       const old=JSON.parse(fs.readFileSync(DEST,'utf8'));
       fs.writeFileSync(DEST, JSON.stringify({...old, apiVersion: spec.info.version,
         schemas: Object.fromEntries(want.map(k=>[k,spec.components.schemas[k]]))}, null, 2)+'\\n');"
@@ -43,6 +44,8 @@ from dodomain.models import (
     App,
     ConnectSessionSummary,
     IntegratorSession,
+    KeylessSessionInfo,
+    KeylessStatus,
     PublicSession,
     VerifyResult,
     WebhookEndpoint,
@@ -128,6 +131,31 @@ REQUIRED_FIELD_MAP: dict[str, dict[str, str]] = {
         "pausedAt": "paused_at",
         "secret": "secret",
     },
+    "KeylessSessionResponse": {
+        "id": "id",
+        "token": "token",
+        "expiresAt": "expires_at",
+        "connectUrl": "connect_url",
+        "records": "records",
+        "mode": "mode",
+        "keyless": "keyless",
+    },
+    "KeylessSessionResponse.keyless": {
+        "appId": "app_id",
+        "allowance": "allowance",
+        "claimUrl": "claim_url",
+        "unlock": "unlock",
+        "docs": "docs",
+    },
+    "KeylessStatusResponse": {
+        "appId": "app_id",
+        "allowance": "allowance",
+        "claimUrl": "claim_url",
+        "unlock": "unlock",
+        "docs": "docs",
+        "createdAt": "created_at",
+        "lastUsedAt": "last_used_at",
+    },
 }
 
 
@@ -152,6 +180,8 @@ def _sample(node: dict[str, Any], key: str) -> Any:
         return _sample(branches[0], key)
     if "enum" in node:
         return node["enum"][0]
+    if "const" in node:
+        return node["const"]
     node_type = node.get("type")
     if node_type == "array":
         return [_sample(node["items"], key)]
@@ -189,6 +219,11 @@ PARSERS = {
     "ListAppsResponse.apps.items": App._from_api,
     "WebhookEndpointSummary": WebhookEndpoint._from_api,
     "WebhookEndpointSecretResponse": WebhookEndpointWithSecret._from_api,
+    "KeylessSessionResponse": lambda p: ConnectSessionSummary._from_keyless_api(
+        p, base_url="https://app.dodomain.io"
+    ),
+    "KeylessSessionResponse.keyless": KeylessSessionInfo._from_api,
+    "KeylessStatusResponse": KeylessStatus._from_api,
 }
 
 
@@ -205,6 +240,11 @@ def test_a_body_built_from_the_published_schema_round_trips_into_the_model(name:
             assert len(value) == len(wire_value), f"{name}.{wire_key} lost its items"
         elif isinstance(value, datetime):
             assert value.isoformat() == "2026-09-08T12:00:00+00:00"
+        elif isinstance(wire_value, dict):
+            # A nested object parses into its own model (checked by its own
+            # entry above, e.g. `KeylessSessionResponse.keyless`); here it only
+            # has to have arrived.
+            assert value is not None, f"{name}.{wire_key} was dropped"
         else:
             assert value == wire_value, f"{name}.{wire_key} did not reach .{attribute}"
 

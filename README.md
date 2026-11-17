@@ -7,7 +7,7 @@ You mint a **connect session**, send the customer to a hosted flow that detects
 their DNS provider and walks them through (or one-clicks) the records, and you get
 a signed webhook when the domain goes live.
 
-This SDK covers **all 16 callable REST operations**, sync and async, plus webhook
+This SDK covers **all 18 callable REST operations**, sync and async, plus webhook
 signature verification. (The API's other four routes are browser navigations that
 answer `302` on every path; the SDK exposes them as URL builders and never fetches
 them.)
@@ -82,6 +82,86 @@ today); a warning never changes the status code.
 > alias is the same class object, is deprecated, and goes away in the next major.
 > `@dodomain/node` 0.5.0 made the identical rename, for the identical reason:
 > "session" already meant two other things in the platform.
+
+### Try it with no account (keyless mode)
+
+Keyless mode is new in `dodomain-sdk` 0.7.0 (the twin of `@dodomain/node` 0.9.x):
+with an older version, use the plain-HTTP script in
+[Keyless start](https://dodomain.io/docs/getting-started#keyless-start) instead.
+
+No account and no key yet? A keyless client gets **10 test connections** for its
+keyless app. Claiming the app with a free account gives it its own secret key and
+moves it into your Free allowance of **50 verified connections a month**, shared
+with your other Free teams; paid plans raise that again
+([pricing](https://dodomain.io/pricing)).
+
+```python
+import os
+from dodomain import DoDomain, DnsRecord
+
+# Reuse the same keyless app across runs: its dd_ks_ key lives in your secret store or env.
+client = DoDomain(keyless=True, keyless_key=os.environ.get("DODOMAIN_KEYLESS_KEY"))
+
+session = client.sessions.create(
+    # Change this to a domain whose DNS you control: a keyless call refuses a placeholder or
+    # reserved domain (customer.com, YOUR-DOMAIN.example) with 400 KEYLESS_PLACEHOLDER_DOMAIN.
+    domain="YOUR-DOMAIN.example",
+    records=[DnsRecord(type="CNAME", host="app", value="edge.yourproduct.com")],
+)
+# session.connect_url: open it, add the records, watch it verify.
+# session.keyless.allowance: limit, used, open, remaining.
+
+if "DODOMAIN_KEYLESS_KEY" not in os.environ and client.keyless_key is not None:
+    # Returned once. Store it like a password (your secret manager, platform env vars or a
+    # gitignored .env); never log it, commit it or paste it anywhere public.
+    save_secret("DODOMAIN_KEYLESS_KEY", client.keyless_key)  # your own secret store
+```
+
+Pass `app_name="..."` on the first `sessions.create` to name the test app:
+doDomain's hosted connect page shows it next to a "Test app" chip, and it is never
+sent to a DNS provider until the app is claimed (until then the app is "DoDomain
+test app" everywhere else).
+
+`session.keyless.claim_url` carries the key after its `#`. Hand it only to the
+person who will claim the app (your own UI or a direct message), never in a log, a
+commit, an issue or a public channel. Neither it nor the key appears in the
+model's `repr()`, and every error redacts any `dd_ks_` key to `dd_ks_…` (its
+message, `details` and `body` alike), so logging a caught error does not leak it.
+
+The first `sessions.create` calls `POST /api/v1/keyless/sessions` with no key,
+gets the API's `428` proof-of-work challenge, solves it with `hashlib` (about 1 to
+3 seconds at the usual 20 bits; the API never asks for more than 24) and retries
+with the proof. If that retry is refused because the network now needs a harder
+proof or the challenge expired while solving, it solves the fresh challenge once
+more, never more. The client then keeps the returned `dd_ks_` key
+(`client.keyless_key`), so later calls need no proof. To keep using the same
+keyless app from another process, pass the key back:
+`DoDomain(keyless=True, keyless_key=...)`. Concurrent creates on a fresh client
+start ONE keyless app and share its key. `AsyncDoDomain(keyless=True)` works the
+same way and yields to the event loop while it solves.
+
+Keyless mode is an explicit opt-in: `DoDomain(secret_key=None)` still raises, so
+an unset environment variable never turns a production client into a test app. A
+keyless client can create sessions, read `client.keyless.status()` (the
+allowance and claim link) and call the token-public session routes
+(`retrieve`, `detect`, `verify`); every other call raises `DoDomainKeylessError`
+with `code == "KEYLESS_MODE"` (and `status_code == 0`, no request sent) until you
+claim the app and switch to its `dd_sk_` key. Keyless refusals from the API
+(`KEYLESS_LIMIT_REACHED`, `KEYLESS_START_RATE_LIMITED`,
+`KEYLESS_CAPACITY_REACHED`, `KEYLESS_PLACEHOLDER_DOMAIN`, …) raise
+`DoDomainKeylessError` too, with the refusal's `details` (the limit and the link
+that unlocks more) and, on the fair-share refusals, `retry_at` / `retry_after`.
+`proof_timeout=` (seconds, above 0 and at most 300, default 120) bounds one
+solve, and `abort=` (a `threading.Event`, or an `asyncio.Event` on the async
+client) stops it with `KEYLESS_PROOF_ABORTED`. Full rules:
+[dodomain.io/docs/getting-started#keyless-start](https://dodomain.io/docs/getting-started#keyless-start).
+
+`solve_keyless_proof(challenge, difficulty_bits, *, timeout=120.0, abort=None)`
+(and `async_solve_keyless_proof`) is the solver itself, exported for callers that
+drive the REST API directly. It returns the full `<challenge>:<nonce>` value for
+the `DoDomain-Keyless-Proof` header and raises `DoDomainKeylessError`
+(`KEYLESS_PROOF_UNSUPPORTED` above 24 bits, `KEYLESS_PROOF_ABORTED`,
+`KEYLESS_PROOF_TIMEOUT`).
 
 ### Reading a session back
 
@@ -452,8 +532,33 @@ except NotFoundError:
 except RateLimitError as exc:
     print(exc.reason, exc.retry_after)
 except DoDomainAPIError as exc:
-    print(exc.code, exc.status_code, exc.message, exc.details)
+    print(exc.message, exc.error, exc.code, exc.status_code, exc.details)
 ```
+
+An API refusal's `exc.message` is its machine error followed by the API's own
+explanation (since 0.7.0, the twin of `@dodomain/node` 0.9.2), and `exc.error` /
+`exc.code` carry the machine values, so branch on those (or on the exception
+class), not on the message:
+
+```python
+from dodomain import DoDomainKeylessError
+
+try:
+    client.sessions.create(domain="customer.com", records=records)
+except DoDomainKeylessError as exc:
+    # exc.message: 'invalid_request: "customer.com" is a placeholder or reserved name, ...'
+    # exc.code: "KEYLESS_PLACEHOLDER_DOMAIN"; on a fair-share 402/429, exc.retry_at says when.
+    print(exc.message, exc.code, exc.retry_at)
+except DoDomainAPIError as exc:
+    print(exc.message, exc.error, exc.code, exc.status_code)
+```
+
+* `exc.error` is the machine error (`"invalid_request"`, `"quota_exceeded"`), or
+  `None` on an error the SDK raised itself (`status_code == 0`).
+* `exc.code` is the machine error too, unless the API sent a stable denial code
+  on a problem+json answer, which then wins. On `DoDomainKeylessError` it is
+  always the `KEYLESS_*` code.
+* `exc.detail` is the API's human text alone, or `None`.
 
 | API `error` code | Exception | Status |
 |---|---|---|
@@ -467,15 +572,17 @@ except DoDomainAPIError as exc:
 | `conflict` | `ConflictError` | 409 |
 | `rate_limited` | `RateLimitError` | 429 |
 | `internal` | `InternalServerError` | 500 |
+| *(any `KEYLESS_*` denial code)* | `DoDomainKeylessError` | as sent |
 | *(anything else)* | `DoDomainAPIError` | as sent |
 
 Plus, outside the HTTP layer: `DoDomainConfigError` (bad constructor options),
 `DoDomainConnectionError` (no response was ever received), and
 `InvalidResponseError` (a 2xx body that does not match the contract).
 
-**`exc.message` is frequently `None`.** The API drops the message field on most
-*thrown* errors, so do not build your user-facing string from it. `str(exc)`
-synthesizes a useful one for you:
+**The API's human text is frequently absent.** It drops the message field on most
+*thrown* errors; `exc.message` then falls back to the machine error alone (or
+`HTTP <status>` when the body named none), and `exc.detail` is `None`. `str(exc)`
+adds the request for you:
 
 ```
 doDomain API error: POST /api/v1/sessions returned HTTP 402 (quota_exceeded)
@@ -519,6 +626,13 @@ client = DoDomain(
     timeout=30.0,
     max_retries=2,
     http_client=None,  # bring your own httpx.Client
+)
+
+# Or, with no account and no key (see "Try it with no account" above):
+client = DoDomain(
+    keyless=True,
+    keyless_key=None,  # a dd_ks_ key from an earlier keyless start, to reuse that app
+    proof_timeout=120.0,  # seconds one proof-of-work solve may take, at most 300
 )
 ```
 
