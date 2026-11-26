@@ -52,12 +52,14 @@ CREATE_SESSION_RESPONSE: dict[str, Any] = {
     # SDK's first release, which is why LEGACY_CREATE_SESSION_RESPONSE below still
     # has to parse.
     "records": [{"type": "CNAME", "host": "app", "fqdn": "app.app.customer.com"}],
+    # `mode` is required on the wire since DoDomain T-18114 (`live` or `sandbox`).
+    "mode": "live",
 }
 
 #: A create response exactly as the API shipped it before `records`/`warnings`
-#: existed — the shape a cached or archived payload still has.
+#: (and later `mode`) existed — the shape a cached or archived payload still has.
 LEGACY_CREATE_SESSION_RESPONSE: dict[str, Any] = {
-    key: value for key, value in CREATE_SESSION_RESPONSE.items() if key != "records"
+    key: value for key, value in CREATE_SESSION_RESPONSE.items() if key not in ("records", "mode")
 }
 
 #: One TLS-issuance advisory, exactly as `zTlsIssuanceAdvisory` puts it on the

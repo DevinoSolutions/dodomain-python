@@ -65,6 +65,7 @@ REQUIRED_FIELD_MAP: dict[str, dict[str, str]] = {
         "token": "token",
         "expiresAt": "expires_at",
         "connectUrl": "connect_url",
+        "mode": "mode",
         "records": "records",
     },
     "PublicSession": {
