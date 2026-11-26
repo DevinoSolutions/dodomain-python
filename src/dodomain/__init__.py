@@ -20,7 +20,7 @@ webhook verifier, the models those return, and the exception hierarchy.
 
 from __future__ import annotations
 
-__version__ = "0.8.0"
+__version__ = "0.8.1"
 
 from ._client import AsyncDoDomain, DoDomain
 from ._transport import DEFAULT_BASE_URL, RateLimitSnapshot
@@ -52,6 +52,7 @@ from .keyless import (
 from .models import (
     SANDBOX_DOMAINS,
     App,
+    CaaTag,
     CheckDomainResult,
     ComposedRecord,
     Confidence,
@@ -102,6 +103,7 @@ __all__ = [
     "App",
     "AsyncDoDomain",
     "AuthenticationError",
+    "CaaTag",
     "CheckDomainResult",
     "ComposedRecord",
     "Confidence",

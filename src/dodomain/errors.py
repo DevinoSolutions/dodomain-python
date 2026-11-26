@@ -264,7 +264,10 @@ class InvalidRequestError(DoDomainAPIError):
     def reason(self) -> str | None:
         """``details.reason`` when the API sent a machine-readable one.
 
-        Known values: ``"unsupported_record_type"``, ``"missing_mx_priority"``.
+        Known values: ``"unsupported_record_type"``, ``"missing_mx_priority"``,
+        ``"missing_srv_fields"``, ``"missing_caa_fields"`` (both also raised
+        locally, before a request is sent) and ``"ns_at_zone_apex"`` (an ``NS``
+        record at the registrable apex; server-side only).
         A zod ``flatten()`` payload has no ``reason`` and returns ``None``.
         """
         reason = self._detail_field("reason")

@@ -39,6 +39,7 @@ __all__ = [
     "DetectResult",
     "DisconnectResult",
     "DnsRecord",
+    "CaaTag",
     "DnsRecordType",
     "DomainConnectDiscovery",
     "DomainConnectRef",
@@ -65,7 +66,8 @@ __all__ = [
     "WebhookEndpointWithSecret",
 ]
 
-DnsRecordType = Literal["A", "AAAA", "CNAME", "TXT", "MX"]
+DnsRecordType = Literal["A", "AAAA", "CNAME", "TXT", "MX", "SRV", "CAA", "NS"]
+CaaTag = Literal["issue", "issuewild", "iodef"]
 Tier = Literal[1, 2, 3]
 Method = Literal["oauth", "domain-connect", "guided"]
 Confidence = Literal["high", "medium", "low"]
@@ -118,8 +120,15 @@ SANDBOX_DOMAINS: tuple[str, ...] = (
 ConnectFontPreset = Literal["system", "humanist", "serif", "rounded"]
 
 #: Every DNS record type a connect session may request, from the app repo's one
-#: record-type home (``packages/core/src/record-capabilities.ts``).
-RECORD_TYPES: tuple[str, ...] = ("A", "AAAA", "CNAME", "TXT", "MX")
+#: record-type home (``packages/core/src/record-capabilities.ts``). NS is accepted
+#: below the zone apex only (a subdomain delegation); the API refuses an apex NS
+#: with ``ns_at_zone_apex``, a call that needs the public suffix list, so it is
+#: left to the server.
+RECORD_TYPES: tuple[str, ...] = ("A", "AAAA", "CNAME", "TXT", "MX", "SRV", "CAA", "NS")
+
+#: The CAA property tags a session may request: the three RFC 8659 defines
+#: (``CAA_TAGS`` in ``record-capabilities.ts``).
+CAA_TAGS: tuple[str, ...] = ("issue", "issuewild", "iodef")
 
 #: The advisory codes and severities, for the runtime check the ``Literal``s
 #: above only make at type-check time.
@@ -265,6 +274,22 @@ def _literal(payload: dict[str, Any], key: str, allowed: tuple[Any, ...]) -> Any
     return value
 
 
+def _record_type(payload: dict[str, Any]) -> str:
+    """Read a record's ``type`` without pinning it to this build's list.
+
+    The API grows its accepted record types additively: 0.8.0 knew five and
+    raised on the SRV/CAA/NS the API started accepting on 2026-10-29, which made
+    reading back ANY session holding one of those records fail as a whole. A type
+    this build does not know now parses as its plain string (check
+    :attr:`DnsRecord.is_known_type`), the same rule ``mode`` follows. A missing,
+    empty or non-string ``type`` is still contract drift and still raises.
+    """
+    value = _req_str(payload, "type")
+    if not value:
+        raise _fail("field 'type' was empty", payload)
+    return value
+
+
 # ── models ──────────────────────────────────────────────────────────────────
 
 
@@ -273,24 +298,53 @@ class DnsRecord:
     """One DNS record the customer has to end up with.
 
     Used both as input to :meth:`dodomain.resources.sessions.Sessions.create` and
-    as output on :class:`PublicSession`.
+    as output on :class:`PublicSession`. The wire shape is core ``zRecord``.
 
     Args:
-        type: One of ``A``, ``AAAA``, ``CNAME``, ``TXT``, ``MX``.
-        host: The name relative to the session's domain. ``"@"`` is the apex.
-        value: The record's value (for ``MX``, the mail exchange).
-        priority: Required for ``MX`` and rejected for nothing else — RFC 5321
-            requires the preference and the API refuses an ``MX`` without one
-            rather than defaulting it.
+        type: One of ``A``, ``AAAA``, ``CNAME``, ``TXT``, ``MX``, ``SRV``, ``CAA``,
+            ``NS`` (:data:`DnsRecordType`). ``NS`` is accepted below the zone apex
+            only. On a record READ from the API this is a plain ``str``: a type
+            added to the API after this build parses instead of failing the whole
+            session read (see :attr:`is_known_type`).
+        host: The name relative to the session's domain. ``"@"`` is the apex. For
+            ``SRV`` it carries the service labels, e.g. ``"_sip._tcp"``.
+        value: The record's value: the ``MX`` exchange, the ``SRV`` target host,
+            the ``CAA`` property value (e.g. ``"letsencrypt.org"``), the ``NS``
+            server.
+        priority: Required for ``MX`` (RFC 5321 preference) and ``SRV`` (RFC 2782
+            priority). The API refuses either without one rather than defaulting
+            it.
         ttl: Optional TTL in seconds.
+        weight: ``SRV`` only, required (0-65535).
+        port: ``SRV`` only, required (0-65535).
+        flags: ``CAA`` only, required (0-255; ``0``, or ``128`` for issuer
+            critical).
+        tag: ``CAA`` only, required: ``issue``, ``issuewild`` or ``iodef``
+            (:data:`CaaTag`).
     """
 
-    type: DnsRecordType
+    type: str
     host: str
     value: str
     priority: int | None = None
     ttl: int | None = None
     raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
+    #: Appended after ``raw`` (0.8.1) so positional construction of the fields
+    #: above keeps working.
+    weight: int | None = None
+    port: int | None = None
+    flags: int | None = None
+    tag: str | None = None
+
+    @property
+    def is_known_type(self) -> bool:
+        """``True`` when :attr:`type` is one this SDK build knows (:data:`RECORD_TYPES`).
+
+        ``False`` only for a record type the API added after this build: the
+        record still parses, with ``value`` and ``raw`` intact, so a caller can
+        show or skip it instead of losing the whole session.
+        """
+        return self.type in RECORD_TYPES
 
     def to_api(self) -> dict[str, Any]:
         """The wire shape this record is sent as."""
@@ -299,18 +353,32 @@ class DnsRecord:
             payload["priority"] = self.priority
         if self.ttl is not None:
             payload["ttl"] = self.ttl
+        if self.weight is not None:
+            payload["weight"] = self.weight
+        if self.port is not None:
+            payload["port"] = self.port
+        if self.flags is not None:
+            payload["flags"] = self.flags
+        if self.tag is not None:
+            payload["tag"] = self.tag
         return payload
 
     @classmethod
     def _from_api(cls, payload: Any) -> DnsRecord:
         data = _obj(payload, "record")
         return cls(
-            type=_literal(data, "type", RECORD_TYPES),
+            type=_record_type(data),
             host=_req_str(data, "host"),
             value=_req_str(data, "value"),
             priority=_opt_int(data, "priority"),
             ttl=_opt_int(data, "ttl"),
             raw=data,
+            weight=_opt_int(data, "weight"),
+            port=_opt_int(data, "port"),
+            flags=_opt_int(data, "flags"),
+            # A plain string on read, like ``type``: a CAA tag the API accepts
+            # later must not fail the session read.
+            tag=_opt_str(data, "tag"),
         )
 
 
@@ -329,16 +397,23 @@ class ComposedRecord:
     :class:`DnsRecord` you sent, or off :attr:`PublicSession.records`.
     """
 
-    type: DnsRecordType
+    #: A plain ``str``: a record type the API added after this build parses (see
+    #: :attr:`is_known_type`) instead of failing the create or session read.
+    type: str
     host: str
     fqdn: str
     raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
+
+    @property
+    def is_known_type(self) -> bool:
+        """``True`` when :attr:`type` is one this SDK build knows (:data:`RECORD_TYPES`)."""
+        return self.type in RECORD_TYPES
 
     @classmethod
     def _from_api(cls, payload: Any) -> ComposedRecord:
         data = _obj(payload, "composed record")
         return cls(
-            type=_literal(data, "type", RECORD_TYPES),
+            type=_record_type(data),
             host=_req_str(data, "host"),
             fqdn=_req_str(data, "fqdn"),
             raw=data,

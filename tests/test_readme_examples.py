@@ -353,6 +353,24 @@ def _readme_block_after(heading: str) -> str:
     return match.group(1)
 
 
+@respx.mock
+def test_the_record_types_block_runs_verbatim_and_the_api_accepts_its_shape() -> None:
+    # The README's SRV/CAA/NS block, executed as written, then sent through
+    # sessions.create: the local validation that mirrors the server must accept
+    # every record it shows.
+    namespace: dict[str, object] = {"DnsRecord": DnsRecord}
+    exec(_readme_block_after("### Record types"), namespace)
+    records = namespace["records"]
+    assert isinstance(records, list)
+    route = respx.post(api("/api/v1/sessions")).mock(
+        return_value=httpx.Response(200, json=CREATE_SESSION_RESPONSE)
+    )
+    with make_client() as client:
+        client.sessions.create(domain="app.customer.com", records=records)
+    sent = json.loads(route.calls[0].request.content)["records"]
+    assert [r["type"] for r in sent] == ["SRV", "CAA", "NS"]
+
+
 def test_the_keyless_block_runs_verbatim(monkeypatch: pytest.MonkeyPatch) -> None:
     # The README's keyless block, executed as written against a MOCK keyless API
     # (a 428 challenge, then the session once the proof holds), with the reader's

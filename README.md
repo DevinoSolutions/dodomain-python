@@ -83,6 +83,29 @@ today); a warning never changes the status code.
 > `@dodomain/node` 0.5.0 made the identical rename, for the identical reason:
 > "session" already meant two other things in the platform.
 
+### Record types
+
+A session can ask for `A`, `AAAA`, `CNAME`, `TXT`, `MX`, `SRV`, `CAA` and `NS`.
+`MX` needs `priority`; `SRV` needs `priority`, `weight` and `port` (its `value`
+is the target host); `CAA` needs `flags` and `tag` (`issue`, `issuewild` or
+`iodef`; its `value` is the property value). `NS` delegates a name below the
+zone apex only: the API refuses an apex `NS` with `ns_at_zone_apex`.
+
+```python
+records = [
+    DnsRecord(
+        type="SRV", host="_sip._tcp", value="sip.yourproduct.com", priority=10, weight=60, port=5060
+    ),
+    DnsRecord(type="CAA", host="@", value="letsencrypt.org", flags=0, tag="issue"),
+    DnsRecord(type="NS", host="dev", value="ns1.yourproduct.com"),
+]
+```
+
+A record type the API adds after your SDK version still parses when you read a
+session back: `record.type` holds its name, `record.is_known_type` is `False`,
+and the rest of the session reads normally (0.8.0 and earlier raised
+`InvalidResponseError` for the whole session instead).
+
 ### Try it with no account (keyless mode)
 
 Keyless mode is new in `dodomain-sdk` 0.7.0 (the twin of `@dodomain/node` 0.9.x):

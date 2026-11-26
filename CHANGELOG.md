@@ -2,6 +2,45 @@
 
 Notable changes to `dodomain-sdk`. The import package is `dodomain`.
 
+## 0.8.1
+
+The record types the API has accepted since 2026-10-29 (DoDomain commit
+2c5a9650): `SRV`, `CAA` and `NS` (below the zone apex).
+
+### Fixed
+
+* **Reading back a session that holds an `SRV`, `CAA` or `NS` record no longer
+  raises `InvalidResponseError`.** 0.8.0 pinned a record's `type` to the
+  original five (`A`, `AAAA`, `CNAME`, `TXT`, `MX`), so `sessions.retrieve`,
+  `sessions.get` and a create response failed as a whole for any such session.
+
+### Added
+
+* **`DnsRecord` carries the new types' fields**, the exact core `zRecord` wire
+  shape: `weight` and `port` (SRV, 0-65535; `value` is the target host, the
+  RFC 2782 priority rides `priority`), `flags` (CAA, 0-255) and `tag` (CAA:
+  `issue`, `issuewild` or `iodef`; `value` is the property value). Appended
+  after `raw`, so positional construction keeps working. `DnsRecordType` gains
+  `SRV`, `CAA` and `NS`; new `CaaTag` literal.
+* **Local refusals that mirror the API's**: an SRV without `priority`, `weight`
+  and `port` (`reason == "missing_srv_fields"`), a CAA without `flags` and `tag`
+  (`"missing_caa_fields"`), a CAA tag outside the three, a CAA value with a
+  double quote or control character, and an out-of-range `weight`/`port`/
+  `flags` all raise `InvalidRequestError` (`status_code == 0`) before a request
+  is sent, with the server's messages. An apex `NS` (`ns_at_zone_apex`) stays
+  server-side: it needs the public suffix list.
+* **A record type the API adds later parses instead of failing the read.**
+  `DnsRecord.type` and `ComposedRecord.type` are now a plain `str` on read (the
+  `DnsRecordType` literal stays for annotations), and `is_known_type` tells a
+  type this build knows from a newer one; `value` and `raw` stay intact. Same
+  for a CAA `tag`. A missing, empty or non-string `type` still raises. This is
+  more forgiving than `@dodomain/node`, which validates the response against
+  the API's closed enum and refuses the whole body: the published OpenAPI v1
+  contract grows its record-type enum additively (5 types, then 8), and this
+  SDK's rule since 0.1.0 is that additive API changes never break a read (the
+  `mode` field follows the same rule since 0.8.0). `sessions.create` still
+  refuses a type outside the eight, since the API would refuse it too.
+
 ## 0.8.0
 
 Parity with `@dodomain/node` 0.10.0: sandbox sessions (DoDomain PR #827,
