@@ -154,7 +154,9 @@ class Sessions:
             domain: The hostname being connected, e.g. ``app.customer.com``. No
                 scheme, port or trailing dot; at least two labels.
             records: The DNS records the customer must end up with. At least one.
-                An ``MX`` record must carry a ``priority``.
+                An ``MX`` record must carry a ``priority``; an ``SRV`` record
+                ``priority``, ``weight`` and ``port``; a ``CAA`` record ``flags``
+                and ``tag``. ``NS`` is accepted below the zone apex only.
             app_id: Which of your apps owns the session. **Required** when
                 authenticating with an OAuth access token (team-scoped); omit it
                 with a ``dd_sk_`` key, whose app is implicit.

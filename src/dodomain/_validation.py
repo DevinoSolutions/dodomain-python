@@ -15,7 +15,7 @@ from collections.abc import Iterable, Sequence
 from urllib.parse import urlsplit
 
 from .errors import InvalidRequestError
-from .models import OVERLAP_HOURS_VALUES, RECORD_TYPES, DnsRecord
+from .models import CAA_TAGS, OVERLAP_HOURS_VALUES, RECORD_TYPES, DnsRecord
 
 __all__ = [
     "validate_create_keyless_session",
@@ -132,8 +132,45 @@ def validate_records(records: Sequence[DnsRecord] | Iterable[DnsRecord]) -> list
         # rather than defaulting it, so a missing one is never a silent mistake.
         if record.type == "MX" and record.priority is None:
             raise _reject("MX records require a numeric priority", reason="missing_mx_priority")
+        _validate_type_fields(record)
         payload.append(record.to_api())
     return payload
+
+
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _validate_type_fields(record: DnsRecord) -> None:
+    """The SRV/CAA field rules, transcribed from core ``zRecord`` and
+    ``missingRecordFields`` (``record-capabilities.ts``), with the server's own
+    messages. NS needs nothing beyond ``value``; its apex rule (``ns_at_zone_apex``)
+    needs the public suffix list and stays server-side.
+    """
+    for name, low, high in (("weight", 0, 65535), ("port", 0, 65535), ("flags", 0, 255)):
+        value = getattr(record, name)
+        if value is not None and (not _is_int(value) or not low <= value <= high):
+            raise _reject(f"{name} must be an integer from {low} to {high}.")
+    if record.type == "SRV":
+        missing = [n for n in ("priority", "weight", "port") if getattr(record, n) is None]
+        if missing:
+            raise _reject(
+                "SRV records require priority, weight and port "
+                f"(missing: {', '.join(missing)}); value is the target host",
+                reason="missing_srv_fields",
+            )
+    if record.type == "CAA":
+        missing = [n for n in ("flags", "tag") if getattr(record, n) is None]
+        if missing:
+            raise _reject(
+                "CAA records require flags and tag "
+                f"(missing: {', '.join(missing)}); value is the property value",
+                reason="missing_caa_fields",
+            )
+        if any(ch == '"' or ord(ch) < 0x20 or ord(ch) == 0x7F for ch in record.value):
+            raise _reject("A CAA value may not contain a double quote or a control character")
+    if record.tag is not None and record.tag not in CAA_TAGS:
+        raise _reject(f"tag must be one of {', '.join(CAA_TAGS)}.")
 
 
 def validate_create_session(

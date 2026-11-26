@@ -169,7 +169,7 @@ def test_create_rejects_an_unsupported_record_type_locally() -> None:
     with pytest.raises(InvalidRequestError) as excinfo, make_client() as client:
         client.sessions.create(
             domain="app.customer.com",
-            records=[DnsRecord(type="SRV", host="a", value="b")],  # type: ignore[arg-type]
+            records=[DnsRecord(type="ALIAS", host="a", value="b")],
         )
     assert route.call_count == 0
     assert excinfo.value.reason == "unsupported_record_type"
