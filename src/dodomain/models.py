@@ -33,6 +33,7 @@ __all__ = [
     "Connection",
     "ConnectionPage",
     "ConnectionStatus",
+    "ConnectSessionMode",
     "ConnectSessionSummary",
     "DeletedWebhookEndpoint",
     "DetectResult",
@@ -91,6 +92,26 @@ TlsIssuanceAdvisorySeverity = Literal["warning", "info"]
 #: windows the API offers. Transcribed from ``zRotateAppSecretKeyInput`` in
 #: ``packages/core/src/schemas.ts``; the server refuses anything else.
 RotationOverlapHours = Literal[0, 1, 24]
+
+#: A connect session's mode (DoDomain T-18114). ``live`` checks real DNS;
+#: ``sandbox`` is a session for one of :data:`SANDBOX_DOMAINS`: simulated results,
+#: no DNS, never counted against a plan or the keyless allowance. The server
+#: decides it from the domain at creation; there is no flag to send. Transcribed
+#: from ``zConnectSessionMode`` in the app repo (``packages/core/src/schemas.ts``).
+#: The model field is typed ``str``, not this ``Literal``: a mode the API adds
+#: later must reach you as its string, not as a parse failure.
+ConnectSessionMode = Literal["live", "sandbox"]
+
+#: The reserved sandbox domain names, from the app repo's one home
+#: (``packages/core/src/sandbox.ts``). Exact, lowercase matches only: a lookalike
+#: such as ``verified.test.example.com`` or ``Verified.Test`` is a normal domain.
+SANDBOX_DOMAINS: tuple[str, ...] = (
+    "verified.test",
+    "pending.test",
+    "slow.test",
+    "wrong-record.test",
+    "unsupported.test",
+)
 
 #: The hosted connect flow's white-label typeface. Transcribed from
 #: ``CONNECT_FONT_PRESETS`` in the app repo (``packages/core/src/schemas.ts``).
@@ -429,8 +450,11 @@ class ConnectSessionSummary:
             obvious.
         warnings: Advisories about the request that was nonetheless accepted.
             Empty for a clean create.
-        mode: ``"live"`` on a keyless session (it checks real DNS); ``None`` on
-            a secret-key client's.
+        mode: ``"live"`` (real DNS) or ``"sandbox"`` (one of
+            :data:`SANDBOX_DOMAINS`: simulated, never counted), on every create
+            response from either route. A plain ``str`` so a mode the API adds
+            later parses; ``None`` only on a response from a deployment older than
+            the field.
         keyless: The keyless app's key (first start only), allowance and claim
             link, on a session a keyless client created; ``None`` otherwise.
     """
@@ -447,8 +471,8 @@ class ConnectSessionSummary:
     warnings: tuple[SessionWarning, ...] = ()
     base_url: str = "https://app.dodomain.io"
     raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
-    #: Keyless only (0.7.0); appended last so positional construction of the
-    #: fields above keeps working.
+    #: Appended last (0.7.0) so positional construction of the fields above
+    #: keeps working. Keyless-only in 0.7.0; on every create response since 0.8.0.
     mode: str | None = None
     keyless: KeylessSessionInfo | None = None
 
@@ -482,12 +506,15 @@ class ConnectSessionSummary:
             warnings=tuple(SessionWarning._from_api(item) for item in _opt_list(data, "warnings")),
             base_url=base_url,
             raw=data,
+            mode=_opt_str(data, "mode"),
         )
 
     @classmethod
     def _from_keyless_api(cls, payload: Any, *, base_url: str) -> ConnectSessionSummary:
         """The ``POST /api/v1/keyless/sessions`` response: the create shape plus
-        ``mode`` and the ``keyless`` block, both required."""
+        the required ``keyless`` block. ``mode`` is read exactly as on the
+        secret-key route: 0.7.0 accepted only ``"live"`` here and so refused a
+        sandbox session's ``"sandbox"``."""
         data = _obj(payload, "keyless session")
         session = cls._from_api(data, base_url=base_url)
         return cls(
@@ -499,7 +526,7 @@ class ConnectSessionSummary:
             warnings=session.warnings,
             base_url=base_url,
             raw=data,
-            mode=_literal(data, "mode", ("live",)),
+            mode=session.mode,
             keyless=KeylessSessionInfo._from_api(data.get("keyless")),
         )
 

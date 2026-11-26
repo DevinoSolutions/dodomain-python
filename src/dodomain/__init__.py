@@ -20,7 +20,7 @@ webhook verifier, the models those return, and the exception hierarchy.
 
 from __future__ import annotations
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 from ._client import AsyncDoDomain, DoDomain
 from ._transport import DEFAULT_BASE_URL, RateLimitSnapshot
@@ -50,6 +50,7 @@ from .keyless import (
     solve_keyless_proof,
 )
 from .models import (
+    SANDBOX_DOMAINS,
     App,
     CheckDomainResult,
     ComposedRecord,
@@ -58,6 +59,7 @@ from .models import (
     Connection,
     ConnectionPage,
     ConnectionStatus,
+    ConnectSessionMode,
     ConnectSessionSummary,
     DeletedWebhookEndpoint,
     DetectResult,
@@ -94,6 +96,7 @@ __all__ = [
     "DEFAULT_BASE_URL",
     "DEFAULT_TOLERANCE_MS",
     "KEYLESS_MAX_DIFFICULTY_BITS",
+    "SANDBOX_DOMAINS",
     "SIGNATURE_HEADER",
     "AbortEvent",
     "App",
@@ -107,6 +110,7 @@ __all__ = [
     "Connection",
     "ConnectionPage",
     "ConnectionStatus",
+    "ConnectSessionMode",
     "ConnectSessionSummary",
     "DeletedWebhookEndpoint",
     "DetectResult",

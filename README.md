@@ -105,6 +105,7 @@ client = DoDomain(keyless=True, keyless_key=os.environ.get("DODOMAIN_KEYLESS_KEY
 session = client.sessions.create(
     # Change this to a domain whose DNS you control: a keyless call refuses a placeholder or
     # reserved domain (customer.com, YOUR-DOMAIN.example) with 400 KEYLESS_PLACEHOLDER_DOMAIN.
+    # No domain at all? Use a sandbox name such as verified.test (see "Sandbox domains").
     domain="YOUR-DOMAIN.example",
     records=[DnsRecord(type="CNAME", host="app", value="edge.yourproduct.com")],
 )
@@ -162,6 +163,45 @@ drive the REST API directly. It returns the full `<challenge>:<nonce>` value for
 the `DoDomain-Keyless-Proof` header and raises `DoDomainKeylessError`
 (`KEYLESS_PROOF_UNSUPPORTED` above 24 bits, `KEYLESS_PROOF_ABORTED`,
 `KEYLESS_PROOF_TIMEOUT`).
+
+### Sandbox domains (no domain needed)
+
+No domain to test with yet? Use one of the reserved **sandbox** names. A sandbox
+session runs the whole flow (the connect URL, detection, verify, the webhooks) on
+simulated results: no DNS query, no provider call, and it is **never counted**
+against your keyless allowance or any plan (it has its own rate limit, 60 an hour
+per app, `429` past it). The response says `mode == "sandbox"`, and every webhook
+for it carries `"sandbox": true` in its `data`. Sandbox names work with a keyless
+client and with a secret key (`dodomain-sdk` 0.8.0 or later; 0.7.0's keyless
+client refused the `"sandbox"` answer).
+
+| Domain              | What happens                                                              |
+| ------------------- | ------------------------------------------------------------------------- |
+| `verified.test`     | verifies on the first check                                               |
+| `pending.test`      | never verifies (stays pending until the session expires)                  |
+| `slow.test`         | verifies about 20 seconds after the session was created                   |
+| `wrong-record.test` | every check finds the record with a wrong value                           |
+| `unsupported.test`  | detection finds no supported provider (manual records); verifies on check |
+
+```python
+from dodomain import DoDomain, DnsRecord, SANDBOX_DOMAINS
+
+client = DoDomain(keyless=True)  # or DoDomain(secret_key=...)
+sandbox = client.sessions.create(
+    domain="verified.test",
+    records=[DnsRecord(type="CNAME", host="app", value="edge.yourproduct.com")],
+)
+assert sandbox.mode == "sandbox"
+assert "verified.test" in SANDBOX_DOMAINS
+```
+
+Only these exact lowercase names (`SANDBOX_DOMAINS`) are sandbox names. Any other
+`.test` name is refused with `KEYLESS_PLACEHOLDER_DOMAIN` on a keyless client, and
+a lookalike (`verified.test.example.com`, `Verified.Test`) is a normal domain. The
+server decides the mode from the domain; there is no flag to send.
+`ConnectSessionSummary.mode` is `"live"` or `"sandbox"` on every create response
+(typed `str`, so a mode the API adds later still parses; `None` only from a
+deployment older than the field).
 
 ### Reading a session back
 
@@ -506,6 +546,11 @@ and `session.completed` additionally carry `tlsIssuanceAdvisories` **when there 
 at least one**, in the shape described under
 [Will the certificate issue?](#will-the-certificate-issue) — absent, not empty,
 when there is nothing to say.
+
+An event for a [sandbox session](#sandbox-domains-no-domain-needed) also carries
+`"sandbox": true` in `data`. The key is absent, never `false`, on every live
+session's event, so skip provisioning with one check:
+`if event["data"].get("sandbox") is True: return`.
 
 Event types: `connection.verified`, `connection.failed`,
 `connection.disconnected`, `session.completed`, `session.abandoned`. A receiver

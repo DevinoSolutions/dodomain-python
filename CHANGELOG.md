@@ -2,6 +2,41 @@
 
 Notable changes to `dodomain-sdk`. The import package is `dodomain`.
 
+## 0.8.0
+
+Parity with `@dodomain/node` 0.10.0: sandbox sessions (DoDomain PR #827,
+T-18114).
+
+### Added
+
+* **`ConnectSessionSummary.mode` on every create response**, from both
+  `POST /api/v1/sessions` and `POST /api/v1/keyless/sessions`: `"live"` (real
+  DNS) or `"sandbox"`. Typed `str` (with the `ConnectSessionMode` literal for
+  annotations) so a mode the API adds later parses; `None` only on a response
+  from a deployment older than the field. A non-string `mode` still raises
+  `InvalidResponseError`.
+* **`SANDBOX_DOMAINS`**: the five reserved sandbox names (`verified.test`,
+  `pending.test`, `slow.test`, `wrong-record.test`, `unsupported.test`). A
+  session for one of them is simulated (no DNS, no provider call) and never
+  counted against a plan or the keyless allowance. README "Sandbox domains".
+* **Webhooks**: every connection and session event for a sandbox session carries
+  `"sandbox": true` in `data` (absent, never `false`, on a live session's
+  event). Documented in the README and `dodomain.webhooks`; `verify_webhook` is
+  unchanged.
+
+### Fixed
+
+* **A keyless client no longer refuses a sandbox session.** 0.7.0 pinned the
+  keyless response's `mode` to `"live"` and raised `InvalidResponseError` on the
+  `"sandbox"` the API answers for a sandbox name.
+
+### Internal
+
+* `tests/fixtures/openapi_v1_shapes.json` regenerated from the monorepo's
+  `apps/docs/public/openapi.json` (`mode` is now required on
+  `CreateSessionResponse`); the prod e2e asserts a real domain's session is
+  `live`.
+
 ## 0.7.0
 
 Parity with `@dodomain/node` 0.9.2: keyless mode (node 0.9.0/0.9.1, DoDomain

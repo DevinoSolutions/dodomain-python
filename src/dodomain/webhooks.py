@@ -33,6 +33,12 @@ the body at all — and treat ``event`` as legacy.
 payload that announces a connection also carries ``connectionId`` — the id
 ``connections.get`` / ``reverify`` / ``disconnect`` are keyed by.
 
+**Sandbox deliveries** (0.8.0, DoDomain T-18114): an event for a sandbox session
+(one of :data:`~dodomain.models.SANDBOX_DOMAINS`, simulated, never counted)
+carries ``"sandbox": true`` in ``data``, on every connection and session event.
+The key is ABSENT, never ``false``, on a live session's event, so read it as
+``event["data"].get("sandbox") is True`` and skip provisioning for it.
+
 **Still no typed event parser, and still on purpose.** The event vocabulary and
 the payload fields both grow additively, so a strict parser here would reject a
 delivery the day the API adds a type — exactly the failure a webhook receiver

@@ -368,3 +368,23 @@ def test_the_keyless_block_runs_verbatim(monkeypatch: pytest.MonkeyPatch) -> Non
         exec(_readme_block_after("### Try it with no account"), namespace)
     assert saved == {"DODOMAIN_KEYLESS_KEY": "dd_ks_scripted_key"}
     assert json.loads(scripted.seen[1].content)["domain"] == "YOUR-DOMAIN.example"
+
+
+def test_the_sandbox_block_runs_verbatim() -> None:
+    # The README's sandbox block, executed as written against a MOCK keyless API
+    # that answers the way the API does for verified.test (`mode: "sandbox"`).
+    from tests.test_keyless import ScriptedKeylessApi, mock_keyless_routes
+
+    scripted = ScriptedKeylessApi()
+
+    def sandbox_answer(request: httpx.Request) -> httpx.Response:
+        response = scripted(request)
+        if response.status_code != 200:
+            return response
+        return httpx.Response(200, json={**response.json(), "mode": "sandbox"})
+
+    with respx.mock(assert_all_called=False) as router:
+        mock_keyless_routes(router, sandbox_answer)
+        namespace: dict[str, object] = {}
+        exec(_readme_block_after("### Sandbox domains"), namespace)
+    assert json.loads(scripted.seen[-1].content)["domain"] == "verified.test"

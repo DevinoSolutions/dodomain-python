@@ -113,6 +113,8 @@ def test_create_session_returns_a_hosted_connect_url_that_expires_in_24h(
     assert created_session.id
     assert created_session.token
     assert created_session.connect_url.startswith("https://app.dodomain.io/connect/")
+    # A real domain is a live session; only the reserved sandbox names are not.
+    assert created_session.mode == "live"
     expected = datetime.now(timezone.utc) + timedelta(hours=24)
     assert abs((created_session.expires_at - expected).total_seconds()) < 600
 
